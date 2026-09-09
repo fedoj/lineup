@@ -1,0 +1,20 @@
+{
+  "name": "lineup",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/web",
+    "api"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build --workspace packages/shared && npm run build --workspace apps/web && npm run build --workspace api",
+    "dev": "npm run dev --workspace apps/web",
+    "typecheck": "tsc --build --verbose",
+    "lint": "tsc --build"
+  }
+}

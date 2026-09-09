@@ -1,0 +1,85 @@
+name: Deploy prod
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prd
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ENVIRONMENT: prd
+  SWA_NAME: lineup-prd-webapp
+  RESOURCE_GROUP: wus3-lineup-prd-rg
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: prd     # add required reviewers here for a manual gate
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: |
+          npm run build --workspace packages/shared
+          npm run build --workspace apps/web
+          npm run build --workspace api
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get SWA deployment token
+        id: swa
+        run: |
+          TOKEN=$(az staticwebapp secrets list \
+            --name "$SWA_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "properties.apiKey" -o tsv)
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Static Web App
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.swa.outputs.token }}
+          action: upload
+          app_location: apps/web/dist
+          api_location: api
+          skip_app_build: true
+          skip_api_build: true
+
+      - name: Smoke test
+        run: |
+          HOST=$(az staticwebapp show --name "$SWA_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "defaultHostname" -o tsv)
+          echo "Deployed to https://$HOST"
+          for i in 1 2 3 4 5; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$HOST/api/health" || true)
+            echo "attempt $i -> $CODE"
+            if [ "$CODE" = "200" ]; then exit 0; fi
+            sleep 15
+          done
+          echo "Production health check failed"
+          exit 1
