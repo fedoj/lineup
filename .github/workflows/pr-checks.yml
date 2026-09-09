@@ -29,4 +29,6 @@ jobs:
       - name: Validate Bicep
         uses: azure/cli@v2
         with:
-          inlineScript: az bicep build --file infra/main.bicep --stdout > /dev/null
+          inlineScript: |
+            az bicep build --file infra/shared.bicep --stdout > /dev/null
+            az bicep build --file infra/app.bicep --stdout > /dev/null

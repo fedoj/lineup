@@ -2,7 +2,8 @@
 -- Multi-tenant by owner_id. Entitlements table is app-agnostic so future
 -- apps on this platform reuse it without migration.
 
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+-- gen_random_uuid() is built into PostgreSQL 13+, so no pgcrypto extension
+-- is required (Azure Flexible Server would need it allowlisted otherwise).
 
 -- ---------------------------------------------------------------- platform
 CREATE TABLE IF NOT EXISTS app_user (
