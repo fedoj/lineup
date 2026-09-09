@@ -68,8 +68,9 @@ jobs:
           action: upload
           app_location: apps/web/dist
           api_location: api
+          api_build_command: "echo already built"
           skip_app_build: true
-          skip_api_build: true
+
 
       - name: Smoke test
         run: |
