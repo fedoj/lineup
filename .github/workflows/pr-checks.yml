@@ -26,6 +26,9 @@ jobs:
           npm run build --workspace apps/web
           npm run build --workspace api
 
+      - name: Unit tests
+        run: node --test packages/shared/test/*.test.mjs
+
       - name: Validate Bicep
         uses: azure/cli@v2
         with:

@@ -20,6 +20,8 @@ env:
   ENVIRONMENT: dev
   SWA_NAME: lineup-dev-webapp
   RESOURCE_GROUP: wus3-lineup-dev-rg
+  # Dev tests the paid plans (Stripe test mode); prd stays free until launch.
+  PAYWALL_ENABLED: 'true'
 
 jobs:
   deploy:
@@ -42,6 +44,9 @@ jobs:
           npm run build --workspace apps/web
           npm run build --workspace api
 
+      - name: Stage API bundle
+        run: node infra/stage-api.cjs
+
       # OIDC: GitHub proves its identity per run. No stored client secret.
       - name: Azure login
         uses: azure/login@v2
@@ -49,6 +54,12 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # Secrets live in Key Vault, not in GitHub. Static Web Apps with a
+      # managed functions API cannot resolve Key Vault references itself, so
+      # CI copies the values into the app settings before deploying.
+      - name: Sync app settings from Key Vault
+        run: node infra/set-settings.cjs "$ENVIRONMENT"
 
       # Fetch the deploy token at runtime so it never lives in GitHub.
       - name: Get SWA deployment token
@@ -67,7 +78,7 @@ jobs:
           azure_static_web_apps_api_token: ${{ steps.swa.outputs.token }}
           action: upload
           app_location: apps/web/dist
-          api_location: api
+          api_location: api-deploy
           api_build_command: "echo already built"
           skip_app_build: true
 

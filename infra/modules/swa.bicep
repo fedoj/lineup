@@ -5,7 +5,8 @@ param name string
 param location string = 'westus2'
 
 @allowed(['Free', 'Standard'])
-param sku string = 'Free'
+// Custom identity providers (Google, Facebook) require Standard.
+param sku string = 'Standard'
 
 param tags object = {}
 
