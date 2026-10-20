@@ -2,24 +2,201 @@
   "trailingSlash": "auto",
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/api/*", "/assets/*", "*.{css,js,png,svg,ico,webmanifest}"]
+    "exclude": [
+      "/api/*",
+      "/assets/*",
+      "/icons/*",
+      "/sw.js",
+      "/manifest.webmanifest",
+      "*.{css,js,png,svg,ico,webmanifest}"
+    ]
   },
   "routes": [
-    { "route": "/api/health", "allowedRoles": ["anonymous"] },
-    { "route": "/api/*", "allowedRoles": ["authenticated"] },
-    { "route": "/login", "rewrite": "/.auth/login/aad" },
-    { "route": "/logout", "rewrite": "/.auth/logout" }
+    {
+      "route": "/assets/*",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      }
+    },
+    {
+      "route": "/sw.js",
+      "headers": {
+        "Cache-Control": "no-cache"
+      }
+    },
+    {
+      "route": "/manifest.webmanifest",
+      "headers": {
+        "Cache-Control": "public, max-age=3600",
+        "Content-Type": "application/manifest+json"
+      }
+    },
+    {
+      "route": "/icons/*",
+      "headers": {
+        "Cache-Control": "public, max-age=604800"
+      }
+    },
+    {
+      "route": "/admin",
+      "redirect": "/help/roles",
+      "statusCode": 302
+    },
+    {
+      "route": "/admin/*",
+      "redirect": "/help/roles",
+      "statusCode": 302
+    },
+    {
+      "route": "/api/health",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/api/divisions/catalog",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/api/unsubscribe",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/api/invites/preview",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/api/stripe/webhook",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/api/support/inbound",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/s/*",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/c/*",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/api/*",
+      "allowedRoles": [
+        "authenticated"
+      ]
+    },
+    {
+      "route": "/login",
+      "rewrite": "/.auth/login/lineup"
+    },
+    {
+      "route": "/register",
+      "rewrite": "/.auth/login/lineupsignup"
+    },
+    {
+      "route": "/logout",
+      "rewrite": "/.auth/logout"
+    },
+    {
+      "route": "/.auth/login/aad",
+      "statusCode": 404
+    },
+    {
+      "route": "/.auth/login/github",
+      "statusCode": 404
+    },
+    {
+      "route": "/.auth/login/google",
+      "statusCode": 404
+    },
+    {
+      "route": "/.auth/login/facebook",
+      "statusCode": 404
+    },
+    {
+      "route": "/.auth/login/twitter",
+      "statusCode": 404
+    }
   ],
   "responseOverrides": {
-    "401": { "statusCode": 401, "rewrite": "/index.html" }
+    "401": {
+      "statusCode": 401,
+      "rewrite": "/index.html"
+    }
   },
   "globalHeaders": {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Content-Security-Policy": "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    "Content-Security-Policy": "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.google.com https://*.gstatic.com https://*.doubleclick.net https://*.googleadservices.com https://*.adtrafficquality.google; frame-src https://*.googlesyndication.com https://*.doubleclick.net https://*.google.com https://*.adtrafficquality.google; connect-src 'self' https://*.googlesyndication.com https://*.google.com https://*.doubleclick.net https://*.googleadservices.com https://*.adtrafficquality.google"
+  },
+  "auth": {
+    "identityProviders": {
+      "customOpenIdConnectProviders": {
+        "lineup": {
+          "registration": {
+            "clientIdSettingName": "LINEUP_OIDC_CLIENT_ID",
+            "clientCredential": {
+              "clientSecretSettingName": "LINEUP_OIDC_CLIENT_SECRET"
+            },
+            "openIdConnectConfiguration": {
+              "wellKnownOpenIdConfiguration": "https://4412d6d0-0cb9-4270-a8b4-1976b579bafb.ciamlogin.com/4412d6d0-0cb9-4270-a8b4-1976b579bafb/v2.0/.well-known/openid-configuration"
+            }
+          },
+          "login": {
+            "nameClaimType": "email",
+            "scopes": [
+              "openid",
+              "profile",
+              "email"
+            ]
+          }
+        },
+        "lineupsignup": {
+          "registration": {
+            "clientIdSettingName": "LINEUP_OIDC_CLIENT_ID",
+            "clientCredential": {
+              "clientSecretSettingName": "LINEUP_OIDC_CLIENT_SECRET"
+            },
+            "openIdConnectConfiguration": {
+              "authorizationEndpoint": "https://4412d6d0-0cb9-4270-a8b4-1976b579bafb.ciamlogin.com/4412d6d0-0cb9-4270-a8b4-1976b579bafb/oauth2/v2.0/authorize?prompt=create",
+              "tokenEndpoint": "https://4412d6d0-0cb9-4270-a8b4-1976b579bafb.ciamlogin.com/4412d6d0-0cb9-4270-a8b4-1976b579bafb/oauth2/v2.0/token",
+              "issuer": "https://4412d6d0-0cb9-4270-a8b4-1976b579bafb.ciamlogin.com/4412d6d0-0cb9-4270-a8b4-1976b579bafb/v2.0",
+              "certificationUri": "https://4412d6d0-0cb9-4270-a8b4-1976b579bafb.ciamlogin.com/4412d6d0-0cb9-4270-a8b4-1976b579bafb/discovery/v2.0/keys"
+            }
+          },
+          "login": {
+            "nameClaimType": "email",
+            "scopes": [
+              "openid",
+              "profile",
+              "email"
+            ]
+          }
+        }
+      }
+    }
   },
   "platform": {
     "apiRuntime": "node:20"
+  },
+  "mimeTypes": {
+    ".webmanifest": "application/manifest+json"
   }
 }

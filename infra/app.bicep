@@ -19,8 +19,9 @@ var appRgName = 'wus3-lineup-${env}-rg'
 var swaName = 'lineup-${env}-webapp'
 var databaseName = 'lineup-${env}'
 
-// Free tier carries no SLA and cannot hold a custom domain reliably.
-var swaSku = env == 'prd' ? 'Standard' : 'Free'
+// Custom identity providers (Google, Facebook) require Standard in every
+// environment, so dev cannot sit on Free without losing sign-in entirely.
+var swaSku = 'Standard'
 
 var tags = {
   application: 'lineup'

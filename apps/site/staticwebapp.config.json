@@ -1,0 +1,14 @@
+{
+  "routes": [
+    { "route": "/support", "rewrite": "/support.html" },
+    { "route": "/help", "redirect": "/support", "statusCode": 301 },
+    { "route": "/about", "redirect": "/", "statusCode": 301 }
+  ],
+  "navigationFallback": { "rewrite": "/index.html", "exclude": ["/ads.txt", "/robots.txt", "/styles.css", "/support.html"] },
+  "mimeTypes": { ".txt": "text/plain" },
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Content-Security-Policy": "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.google.com https://*.gstatic.com https://*.doubleclick.net https://*.googleadservices.com https://*.adtrafficquality.google; frame-src https://*.googlesyndication.com https://*.doubleclick.net https://*.google.com https://*.adtrafficquality.google; connect-src 'self' https://*.googlesyndication.com https://*.google.com https://*.doubleclick.net https://*.googleadservices.com https://*.adtrafficquality.google"
+  }
+}

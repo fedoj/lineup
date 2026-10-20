@@ -1,0 +1,40 @@
+:root { --bg:#f4f6fa; --surface:#fff; --ink:#0e1a2b; --soft:#3c4b61; --muted:#64748b; --line:#dde3ed; --brand:#0f3d6e; --brand-hi:#17589b; --accent:#11875a; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+a { color:var(--brand-hi); }
+.wrap { max-width:960px; margin:0 auto; padding:0 20px; }
+header.top { background:var(--brand); color:#fff; }
+header.top .wrap { display:flex; align-items:center; justify-content:space-between; min-height:60px; flex-wrap:wrap; }
+.logo { font-weight:800; font-size:20px; color:#fff; text-decoration:none; }
+.logo span { color:#7fd3ae; }
+nav a { color:#dbe7f5; text-decoration:none; margin-left:18px; font-size:15px; }
+nav a[aria-current="page"] { color:#fff; font-weight:600; border-bottom:2px solid #7fd3ae; padding-bottom:2px; }
+.hero { background:linear-gradient(160deg,var(--brand) 0%,var(--brand-hi) 100%); color:#fff; padding:56px 0 64px; }
+.hero h1 { font-size:38px; line-height:1.15; margin:0 0 14px; max-width:700px; }
+.hero p { font-size:18px; color:#dbe7f5; max-width:660px; margin:0 0 26px; }
+.hero.slim { padding:40px 0 44px; }
+.hero.slim h1 { font-size:32px; }
+.btn { display:inline-block; background:var(--accent); color:#fff; padding:12px 20px; border-radius:10px; text-decoration:none; font-weight:600; }
+.btn.ghost { background:transparent; border:1px solid #9fc0e6; margin-left:10px; }
+section { padding:44px 0; }
+section + section { padding-top:0; }
+h2 { font-size:26px; margin:0 0 8px; }
+.lede { color:var(--soft); margin:0 0 24px; max-width:740px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:20px; }
+.card h3 { margin:0 0 6px; font-size:17px; }
+.card p { margin:0; color:var(--soft); font-size:15px; }
+.card .emoji { font-size:28px; display:block; margin-bottom:6px; }
+.app { display:flex; gap:22px; align-items:flex-start; background:var(--surface); border:1px solid var(--line); border-radius:18px; padding:26px; }
+.app .icon { font-size:44px; line-height:1; }
+.app h3 { margin:0 0 4px; font-size:22px; }
+.app .tag { color:var(--muted); font-size:14px; margin:0 0 10px; }
+.app p { margin:0 0 10px; color:var(--soft); }
+.faq details { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 18px; margin-bottom:10px; }
+.faq summary { font-weight:600; cursor:pointer; }
+.faq details p { color:var(--soft); margin:10px 0 0; }
+.steps { padding-left:20px; color:var(--soft); }
+.steps li { margin-bottom:6px; }
+footer { border-top:1px solid var(--line); padding:26px 0 40px; color:var(--muted); font-size:14px; }
+footer a { margin-right:14px; }
+@media (max-width:600px) { .hero h1 { font-size:30px; } .btn.ghost { margin:10px 0 0; } .app { flex-direction:column; } nav a { margin-left:12px; } }

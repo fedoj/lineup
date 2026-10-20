@@ -32,3 +32,10 @@ yarn-error.log*
 
 # Azure
 .azure/
+
+# staged API bundle for Static Web Apps deployment
+api-deploy/
+
+# local secrets / scratch payloads (never commit)
+infra/.oidc-secret.txt
+infra/.app-create.json
