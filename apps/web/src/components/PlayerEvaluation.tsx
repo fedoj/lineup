@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { cardRating, cardStats, cardTier, EVALUATION_CATEGORIES, EVALUATION_MAX, overallRating } from '@lineup/shared';
+import { cardRating, cardStats, cardTier, defaultAvatarFor, EVALUATION_CATEGORIES, EVALUATION_MAX, overallRating } from '@lineup/shared';
 import { api, apiPath, peek, type Evaluations, type PlayerEvaluation } from '../lib/api';
 import { PaidLock } from '../lib/features';
 import PlayerAvatar from './PlayerAvatar';
@@ -57,8 +57,9 @@ export function RosterEvaluation({
         <AvatarEditor
           playerId={ev.playerId}
           playerName={ev.playerName ?? 'Player'}
-          initial={ev.avatar}
+          initial={ev.avatar ?? defaultAvatarFor(ev.gender)}
           initialHeritage={ev.heritage ?? null}
+          gender={ev.gender ?? null}
           onCancel={() => setDesigning(false)}
           onSaved={() => {
             setDesigning(false);
@@ -207,7 +208,7 @@ export function MyPlayerRating({ teamId }: { teamId: string }) {
         <div className="my-players">
           {data.evaluations.map((ev) => (
             <div key={ev.playerId} className="my-player-free">
-              <PlayerAvatar avatar={ev.avatar} size={140} title={`${ev.playerName} avatar`} />
+              <PlayerAvatar avatar={ev.avatar ?? defaultAvatarFor(ev.gender)} size={140} title={`${ev.playerName} avatar`} />
               <strong>{ev.playerName}</strong>
               <PaidLock feature="playerEvaluation" what="Your child's player card" />
             </div>
@@ -255,8 +256,9 @@ function AvatarControls({
       <AvatarEditor
         playerId={ev.playerId}
         playerName={ev.playerName ?? 'Player'}
-        initial={ev.avatar}
+        initial={ev.avatar ?? defaultAvatarFor(ev.gender)}
           initialHeritage={ev.heritage ?? null}
+          gender={ev.gender ?? null}
         onCancel={onDone}
         onSaved={onDone}
       />
@@ -296,7 +298,7 @@ export function PlayerCardsGrid({ teamId }: { teamId: string }) {
   if (!data || data.mode === 'overall' || data.evaluations.length === 0) return null;
 
   return (
-    <section className="card">
+    <section className="card" data-fold-open>
       <h2>Player cards</h2>
       <p className="note">
         Swipe left or right to see every player: overall out of 99 and six stats, in bronze, silver or gold.

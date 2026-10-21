@@ -8,8 +8,10 @@ import {
   onInstallChange,
   platform,
   promptInstall,
+  pushProblemText,
   pushSubscribed,
   refreshPushSubscription,
+  reportPushSetup,
   shouldAskForNotifications,
   turnOffNotifications,
   turnOnNotifications,
@@ -64,18 +66,19 @@ export default function InstallCard() {
         return;
       }
       const state = await turnOnNotifications(info.publicKey, (sub) => api.savePush(sub));
+      reportPushSetup(api.reportPush, state);
       setNotify(state);
       setSubscribed(state === 'granted');
-      if (state === 'granted') void api.testPush().catch(() => undefined);
-      setMsg(
-        state === 'granted'
-          ? 'Notifications are on for this device. A test one is on its way.'
-          : state === 'denied'
-            ? 'Notifications are blocked. You can allow them in your browser or phone settings for this site.'
-            : null,
-      );
+      if (state === 'granted') {
+        void api.testPush().catch(() => undefined);
+        setMsg('Notifications are on for this device. A test one is on its way.');
+      } else {
+        setError(pushProblemText(state));
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not turn notifications on');
+      const err = e instanceof Error ? e : new Error(String(e));
+      reportPushSetup(api.reportPush, err);
+      setError(pushProblemText(err));
     } finally {
       setBusy(false);
     }
@@ -151,7 +154,12 @@ export default function InstallCard() {
       ) : notify === 'unsupported' ? (
         <p className="note">This browser can’t show notifications. You’ll still see them under the 🔔 bell in Lineup.</p>
       ) : notify === 'denied' ? (
-        <p className="note">Notifications are blocked for Lineup. Allow them in your browser or phone settings for this site, then come back here.</p>
+        <>
+          <p className="note">{pushProblemText('denied')}</p>
+          <button type="button" className="btn ghost btn-sm" onClick={() => setNotify(notificationState())}>
+            I changed it, check again
+          </button>
+        </>
       ) : subscribed && notify === 'granted' ? (
         <div className="row">
           <span className="note">✓ Notifications are on for this device: game changes, messages, sign-ups and reminders.</span>
@@ -241,11 +249,24 @@ export function NotifyAsk() {
     if (isNativeApp()) return;
     let alive = true;
     const t = window.setTimeout(() => {
-      if (notificationState() === 'granted') {
+      const state = notificationState();
+      // Once a day, tell the server where this device stands, so problems
+      // on a phone can be seen without asking the person.
+      const dayKey = 'lineup.pushReported';
+      const today = new Date().toDateString();
+      const reportOnce = (o: Parameters<typeof reportPushSetup>[1]) => {
+        if (localStorage.getItem(dayKey) === today) return;
+        localStorage.setItem(dayKey, today);
+        reportPushSetup(api.reportPush, o);
+      };
+      if (state === 'granted') {
         void api
           .push()
           .then((info) => (info.available && info.publicKey ? refreshPushSubscription(info.publicKey, (sub) => api.savePush(sub)) : false))
-          .catch(() => undefined);
+          .then((ok) => ok && reportOnce('granted'))
+          .catch((e) => reportOnce(e instanceof Error ? e : new Error(String(e))));
+      } else if (state === 'denied') {
+        reportOnce('denied');
       } else if (alive && shouldAskForNotifications()) {
         void api
           .push()
@@ -267,19 +288,19 @@ export function NotifyAsk() {
       const info = await api.push();
       if (!info.publicKey) return setShow(false);
       const state = await turnOnNotifications(info.publicKey, (sub) => api.savePush(sub));
+      reportPushSetup(api.reportPush, state);
       closeNotificationAsk();
       if (state === 'granted') {
         void api.testPush().catch(() => undefined);
         setDone('✓ Notifications are on. You’ll get a test one now.');
-      } else if (state === 'denied') {
-        setDone('Notifications are blocked. You can allow them later in your phone settings for Lineup.');
+        window.setTimeout(() => setShow(false), 6000);
       } else {
-        setShow(false);
+        setDone(pushProblemText(state));
       }
-      window.setTimeout(() => setShow(false), 5000);
-    } catch {
-      setDone('Could not turn notifications on. Try Account › The Lineup app.');
-      window.setTimeout(() => setShow(false), 5000);
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      reportPushSetup(api.reportPush, err);
+      setDone(pushProblemText(err));
     } finally {
       setBusy(false);
     }
@@ -288,7 +309,12 @@ export function NotifyAsk() {
   return (
     <div className="install-banner notify-ask" role="region" aria-label="Notifications">
       {done ? (
-        <span>{done}</span>
+        <>
+          <span>{done}</span>
+          <button type="button" className="chip-x" aria-label="Close" onClick={() => setShow(false)}>
+            ×
+          </button>
+        </>
       ) : (
         <>
           <span>🔔 Get a notification when a game changes or the team messages you?</span>

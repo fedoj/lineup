@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type MeResponse, type SupportComment, type SupportRequest } from '../lib/api';
 import { RefundRequest } from '../components/RefundRequest';
+import HelpAnswers from '../components/HelpAnswers';
 
 const STATUS_LABEL: Record<SupportRequest['status'], string> = {
   open: 'Open',
@@ -122,8 +123,10 @@ export default function Support({ subscription = null }: { subscription?: MeResp
       )}
       {error && <section className="card err">{error}</section>}
 
+      <HelpAnswers />
+
       <section className="card">
-        <h2>Help & support</h2>
+        <h2>Ask us something</h2>
         <p className="note">
           Tell us what went wrong or what you need changed. Include the team,
           game or player name when it helps us find the issue. To see what each

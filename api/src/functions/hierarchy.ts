@@ -553,6 +553,8 @@ export async function hierarchyHandler(
       canManage: canOnScope(access, { orgId: r.org_id, regionId: r.id }, 'region.manage').allowed,
       canRename: canOnScope(access, { orgId: r.org_id, regionId: r.id }, 'scope.rename').allowed,
       canInvite: canOnScope(access, { orgId: r.org_id, regionId: r.id }, 'member.invite').allowed,
+      // Schedules games and keeps the field maps (staff, and the scheduler role).
+      canSchedule: canOnScope(access, { orgId: r.org_id, regionId: r.id }, 'fixture.schedule').allowed,
       trialEndsAt: trialEnds.get(r.id) ?? null,
     });
 
@@ -568,6 +570,7 @@ export async function hierarchyHandler(
           canManage: canOnScope(access, { orgId: o.id }, 'org.manage').allowed,
           canRename: canOnScope(access, { orgId: o.id }, 'scope.rename').allowed,
           canInvite: canOnScope(access, { orgId: o.id }, 'member.invite').allowed,
+          canSchedule: canOnScope(access, { orgId: o.id }, 'fixture.schedule').allowed,
           trialEndsAt: trialEnds.get(o.id) ?? null,
           addRegion: decisionOut(canOnScope(access, { orgId: o.id }, 'region.manage')),
           regions: regions.filter((r) => r.org_id === o.id).map(regionOut),
@@ -710,6 +713,7 @@ const ROLE_LABEL: Record<Role, string> = {
   org_admin: 'Org admin',
   director: 'Director',
   region_admin: 'Region admin',
+  scheduler: 'Scheduler',
   coach: 'Coach',
   assistant: 'Assistant coach',
   team_parent: 'Team parent',
@@ -729,6 +733,7 @@ const ROLE_SCOPES: Record<Role, readonly InviteScopeKind[]> = {
   org_admin: ['org'],
   director: ['org', 'region'],
   region_admin: ['org', 'region'],
+  scheduler: ['org', 'region'],
   coach: ['team', 'division'],
   assistant: ['team', 'division'],
   team_parent: ['team'],

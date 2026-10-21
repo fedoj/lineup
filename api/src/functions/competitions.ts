@@ -63,6 +63,17 @@ export function canManageCompetition(access: AccessContext, userId: string, c: C
   return canOnScope(access, { orgId: c.org_id!, regionId: c.region_id }, 'game.create').allowed;
 }
 
+/**
+ * May the caller schedule games in this league or tournament? Its managers,
+ * and an organization's or region's scheduler (Fady, 10/20), who schedules
+ * games in existing ones but never creates or changes the league itself.
+ */
+export function canScheduleInCompetition(access: AccessContext, userId: string, c: CompetitionRow): boolean {
+  if (canManageCompetition(access, userId, c)) return true;
+  if (c.owner_user_id || !c.org_id) return false;
+  return canOnScope(access, { orgId: c.org_id, regionId: c.region_id }, 'fixture.schedule').allowed;
+}
+
 export function isArchived(c: Pick<CompetitionRow, 'starts_on' | 'ends_on'>): boolean {
   return competitionStatus(c.starts_on, c.ends_on, appToday()) === 'archived';
 }
@@ -127,16 +138,18 @@ async function eligibleTeams(access: AccessContext, userId: string, c: Competiti
     ),
     query<{ id: string }>('SELECT id FROM team WHERE owner_id = $1 AND deleted_at IS NULL', [userId]),
   ]);
-  // A coach's own league or tournament takes any team they coach, in a region
-  // or not (Fady, 10/19: their region or organization may not use Lineup).
+  // A coach's own league or tournament takes the standalone teams they coach,
+  // never a team of an organization or region, whose games are scheduled
+  // there (Shadi, 10/20; it took any team they coached since 10/19).
   // Only team-level roles count, so an organization admin's own one does not
   // sweep in every team of the organization.
   const ownedIds = new Set(owned.map((t) => t.id));
   const teamRoles: AccessContext = { ...access, isPlatformAdmin: false, memberships: access.memberships.filter((m) => m.teamId) };
   return teams.filter(
     (t) =>
-      ownedIds.has(t.id) ||
-      canOnTeam(teamRoles, { teamId: t.id, orgId: t.org_id, regionId: t.region_id, divisionId: null }, 'team.edit').allowed,
+      standalone(t) &&
+      (ownedIds.has(t.id) ||
+        canOnTeam(teamRoles, { teamId: t.id, orgId: t.org_id, regionId: t.region_id, divisionId: null }, 'team.edit').allowed),
   );
 }
 
@@ -528,6 +541,8 @@ export async function competitionsHandler(req: HttpRequest, ctx: InvocationConte
             ...summary(c, { teams: teamIds.length, games: games.length, canManage }),
             ownerKind: c.owner_user_id ? 'coach' : c.region_id ? 'region' : 'org',
             canEdit: canManage && !archived,
+            // Schedules games here without managing the league (the scheduler role).
+            canSchedule: !archived && canScheduleInCompetition(access, user.id, c),
             teams: teams.map((t) => ({
               id: t.id,
               name: t.name,
@@ -558,6 +573,10 @@ export async function competitionsHandler(req: HttpRequest, ctx: InvocationConte
       // Region and organization Games tabs list their teams' friendlies too:
       // every team for their staff, otherwise the caller's own teams there.
       let friendlyTeamIds: string[] | null = null;
+      // Region and organization staff approve friendly requests there, and add
+      // friendlies between its teams with ＋ Friendly (Shadi, 10/20).
+      let approvesFriendlies = false;
+      let scopeTeamsSql: { where: string; id: string } | null = null;
       if (scope === 'team') {
         const team = await loadTeamContext(id);
         if (!team || !canOnTeam(access, team, 'team.view').allowed) return FORBIDDEN;
@@ -569,7 +588,11 @@ export async function competitionsHandler(req: HttpRequest, ctx: InvocationConte
         );
         const t = await queryOne<TeamRow>(`${TEAM_SELECT} WHERE t.id = $1`, [id]);
         if (t && standalone(t)) {
-          // A coach's own teams: the coach runs their seasons.
+          // A coach's own teams: the coach runs their seasons. Their Games tab
+          // shows only those and the team's friendlies, never an
+          // organization's or region's (Shadi, 10/20).
+          rows = rows.filter((c) => c.owner_user_id);
+          friendlyTeamIds = [id];
           canCreate = canOnTeam(access, team, 'team.edit').allowed;
           createAs = { scope: 'team', id };
         } else if (t?.region_id) {
@@ -602,6 +625,8 @@ export async function competitionsHandler(req: HttpRequest, ctx: InvocationConte
         );
         canCreate = canOnScope(access, { orgId: r.org_id, regionId: r.id }, 'game.create').allowed;
         createAs = { scope: 'region', id: r.id };
+        approvesFriendlies = canOnScope(access, { orgId: r.org_id, regionId: r.id }, 'fixture.schedule').allowed;
+        if (canCreate) scopeTeamsSql = { where: 't.region_id = $1', id: r.id };
       } else {
         const o = await queryOne<{ id: string }>('SELECT id FROM organization WHERE id = $1 AND deleted_at IS NULL', [id]);
         if (!o) return FORBIDDEN;
@@ -618,11 +643,19 @@ export async function competitionsHandler(req: HttpRequest, ctx: InvocationConte
         );
         canCreate = canOnScope(access, { orgId: o.id }, 'game.create').allowed;
         createAs = { scope: 'org', id: o.id };
+        approvesFriendlies = canOnScope(access, { orgId: o.id }, 'fixture.schedule').allowed;
+        if (canCreate) scopeTeamsSql = { where: 't.org_id = $1', id: o.id };
       }
 
-      const [list, friendlies] = await Promise.all([
+      const [list, friendlies, scopeTeams] = await Promise.all([
         summaries(access, user.id, rows),
         friendlyTeamIds ? friendliesFor(friendlyTeamIds) : Promise.resolve(undefined),
+        scopeTeamsSql
+          ? query<TeamRow>(
+              `SELECT * FROM (${TEAM_SELECT} WHERE ${scopeTeamsSql.where} AND t.deleted_at IS NULL AND t.archived_at IS NULL) x`,
+              [scopeTeamsSql.id],
+            )
+          : Promise.resolve(null),
       ]);
       // A team's list says where the team stands in each one.
       const standings = scope === 'team' ? await Promise.all(rows.map((c) => teamStanding(c, id))) : null;
@@ -634,6 +667,12 @@ export async function competitionsHandler(req: HttpRequest, ctx: InvocationConte
           createOptions: canCreate && createAs ? [{ ...createAs, label: '' }] : [],
           competitions: standings ? list.map((s, i) => ({ ...s, standing: standings[i] })) : list,
           friendlies,
+          approvesFriendlies,
+          friendlyTeams: scopeTeams
+            ? scopeTeams
+                .map((t) => ({ id: t.id, name: t.name, regionName: t.region_personal ? null : t.region_name }))
+                .sort((a, b) => (a.regionName ?? '').localeCompare(b.regionName ?? '') || a.name.localeCompare(b.name))
+            : undefined,
         },
       };
     }
@@ -787,7 +826,7 @@ export async function competitionForGame(
   const id = String(competitionId ?? '').slice(0, 36);
   if (!id) return { id: null };
   const c = await loadCompetition(id);
-  if (!c || !canManageCompetition(access, userId, c)) return { error: FORBIDDEN };
+  if (!c || !canScheduleInCompetition(access, userId, c)) return { error: FORBIDDEN };
   if (isArchived(c)) return { error: { status: 409, jsonBody: { error: 'That league or tournament has ended.', code: 'ARCHIVED' } } };
   if (date < c.starts_on || date > c.ends_on) {
     return { error: { status: 400, jsonBody: { error: `Pick a date from ${c.starts_on} to ${c.ends_on} for ${c.name}.` } } };

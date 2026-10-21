@@ -103,13 +103,13 @@ export default function Calendar({
     load();
   }, [load]);
 
-  async function run(fn: () => Promise<unknown>, done: string) {
+  async function run(fn: () => Promise<unknown>, done: string | (() => string)) {
     setBusy(true);
     setError(null);
     setMsg(null);
     try {
       await fn();
-      setMsg(done);
+      setMsg(typeof done === 'function' ? done() : done);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong');
@@ -194,7 +194,7 @@ export default function Calendar({
 
       {scope !== 'team' && data.canSchedule && (
         <section className="card">
-          <p className="note">To schedule a game, open the Games &amp; matches tab and the league or tournament it belongs to.</p>
+          <p className="note">To schedule a game, open the Games tab and the league or tournament it belongs to.</p>
         </section>
       )}
 
@@ -817,7 +817,7 @@ export function FriendlyForm({
   teamId: string;
   allowGame: boolean;
   busy: boolean;
-  run: (fn: () => Promise<unknown>, done: string) => Promise<void>;
+  run: (fn: () => Promise<unknown>, done: string | (() => string)) => Promise<void>;
   /** Opened from a "＋ Game" button elsewhere; closing hands back to it. */
   open?: boolean;
   onClose?: () => void;
@@ -829,6 +829,12 @@ export function FriendlyForm({
   // Another Lineup team picked as the opponent ('' = type a name).
   const [opponentTeam, setOpponentTeam] = useState('');
   const [opponents, setOpponents] = useState<FriendlyOpponent[] | null>(null);
+  // A coach's own team finds other standalone teams by name (Fady, 10/20).
+  const [searchable, setSearchable] = useState(false);
+  // A team in an organization or region asks for a friendly with one of its
+  // other teams, and its staff approve it (Shadi, 10/20).
+  const [requestOnly, setRequestOnly] = useState(false);
+  const [search, setSearch] = useState('');
   const [date, setDate] = useState('');
   const [kickoff, setKickoff] = useState('');
   const [isHome, setIsHome] = useState(true);
@@ -847,9 +853,29 @@ export function FriendlyForm({
     if (!open || !teamId || opponents !== null) return;
     api
       .friendlyOpponents(teamId)
-      .then((r) => setOpponents(r.opponents))
+      .then((r) => {
+        setOpponents(r.opponents);
+        setSearchable(Boolean(r.searchable));
+        setRequestOnly(Boolean(r.requestOnly));
+      })
       .catch(() => setOpponents([]));
   }, [open, teamId, opponents]);
+  useEffect(() => {
+    const q = search.trim();
+    if (!searchable || q.length < 3) return;
+    const t = window.setTimeout(() => {
+      api
+        .friendlyOpponents(teamId, q)
+        .then((r) =>
+          setOpponents((prev) => {
+            const seen = new Set((prev ?? []).map((o) => o.id));
+            return [...(prev ?? []), ...r.opponents.filter((o) => !seen.has(o.id))];
+          }),
+        )
+        .catch(() => undefined);
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [search, searchable, teamId]);
   const pickedTeam = !isGame && opponentTeam ? opponents?.find((o) => o.id === opponentTeam) ?? null : null;
   const groups = (() => {
     const out = new Map<string, FriendlyOpponent[]>();
@@ -877,7 +903,7 @@ export function FriendlyForm({
   return (
     <section className="card">
       <div className="card-head">
-        <h2>{allowGame ? 'Add a game' : 'Add a friendly'}</h2>
+        <h2>{allowGame ? 'Add a game' : requestOnly ? 'Request a friendly' : 'Add a friendly'}</h2>
         <button type="button" className="btn ghost btn-sm" onClick={() => setOpen(false)}>
           Cancel
         </button>
@@ -885,7 +911,9 @@ export function FriendlyForm({
       <p className="note">
         {allowGame
           ? 'Your team is not part of an organization or region, so you schedule your own games and friendlies.'
-          : 'Games for a league or tournament are scheduled inside it. Friendlies you add show on this team\u2019s calendar, match day and stats, but never count toward standings.'}
+          : requestOnly
+            ? 'Pick another team from your region or organization. Your region approves the friendly (for a team in another region: both regions, or the organization), then it goes on both teams\u2019 calendars. Friendlies never count toward standings.'
+            : 'Games for a league or tournament are scheduled inside it. Friendlies you add show on this team\u2019s calendar, match day and stats, but never count toward standings.'}
       </p>
       <div className="field-grid">
         {allowGame && (
@@ -897,11 +925,23 @@ export function FriendlyForm({
             </select>
           </label>
         )}
+        {!isGame && searchable && (
+          <label>
+            Find another team on Lineup
+            <input
+              type="search"
+              value={search}
+              maxLength={40}
+              placeholder="Type 3 letters of its name"
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+        )}
         {!isGame && (opponents?.length ?? 0) > 0 && (
           <label>
-            Opponent team on Lineup
+            {requestOnly ? 'Team to play' : 'Opponent team on Lineup'}
             <select value={opponentTeam} onChange={(e) => setOpponentTeam(e.target.value)}>
-              <option value="">Not on Lineup: type the name</option>
+              <option value="">{requestOnly ? 'Pick a team' : 'Not on Lineup: type the name'}</option>
               {groups.map(([g, list]) => (
                 <optgroup key={g} label={g}>
                   {list.map((o) => (
@@ -914,7 +954,10 @@ export function FriendlyForm({
             </select>
           </label>
         )}
-        {!pickedTeam && (
+        {requestOnly && opponents !== null && opponents.length === 0 && (
+          <p className="note">There are no other teams in your region or organization to play yet.</p>
+        )}
+        {!pickedTeam && !requestOnly && (
           <label>
             Opponent
             <input value={opponent} maxLength={80} placeholder="e.g. Westside FC" onChange={(e) => setOpponent(e.target.value)} />
@@ -944,7 +987,7 @@ export function FriendlyForm({
           <input value={field} maxLength={40} onChange={(e) => setField(e.target.value)} />
         </label>
       </div>
-      {pickedTeam && (
+      {pickedTeam && !requestOnly && (
         <p className="note">
           The friendly goes on {pickedTeam.name}’s calendar too. Their coach and families are told, and both teams can
           say who’s going. A change of date, time or place, the score, or calling it off, shows on both calendars.
@@ -959,10 +1002,11 @@ export function FriendlyForm({
       <button
         type="button"
         className="btn"
-        disabled={busy || !(pickedTeam || opponent.trim()) || !date || !kickoff || !location.trim()}
-        onClick={() =>
-          run(async () => {
-            await api.createFriendly({
+        disabled={busy || !(pickedTeam || (!requestOnly && opponent.trim())) || !date || !kickoff || !location.trim()}
+        onClick={() => {
+          let done = isGame ? 'Game added.' : pickedTeam ? `Friendly added to both calendars. ${pickedTeam.name} has been told.` : 'Friendly added.';
+          void run(async () => {
+            const r = await api.createFriendly({
               teamId,
               opponent: pickedTeam ? pickedTeam.name : opponent.trim(),
               opponentTeamId: pickedTeam?.id,
@@ -980,10 +1024,13 @@ export function FriendlyForm({
             setField('');
             setAssistantFree(false);
             setOpen(false);
-          }, isGame ? 'Game added.' : pickedTeam ? `Friendly added to both calendars. ${pickedTeam.name} has been told.` : 'Friendly added.')
-        }
+            if (r.status === 'pending') {
+              done = `Friendly request sent. It goes on both calendars once ${r.waitingFor ?? 'your region'} approves it.`;
+            }
+          }, () => done);
+        }}
       >
-        {isGame ? 'Add game' : 'Add friendly'}
+        {isGame ? 'Add game' : requestOnly ? 'Send request' : 'Add friendly'}
       </button>
     </section>
   );

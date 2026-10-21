@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { revealInFold } from '../lib/foldCards';
 
 /**
  * Getting started (Fady, 10/17): a checklist for a new organization (or
@@ -155,6 +156,7 @@ export function TourTip({ target, onClose }: { target: TourTarget | null; onClos
       tries += 1;
       if (el) {
         window.clearInterval(find);
+        revealInFold(el);
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         el.classList.add('tour-highlight');
         window.setTimeout(() => el && setRect(el.getBoundingClientRect()), 450);

@@ -46,8 +46,8 @@ export default function RosterRow({ player, disabled, duplicate, onChange, onRem
         )}
       </div>
       {player.publicId && (
-        <div className="rr-id sub" title="Player ID, unique in the organization">
-          🆔 {player.publicId}
+        <div className="rr-id sub" title="The player's code, unique in the organization">
+          {player.publicId}
         </div>
       )}
 

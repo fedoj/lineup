@@ -32,7 +32,28 @@ export async function pushHandler(req: HttpRequest, ctx: InvocationContext): Pro
       endpoint?: string;
       keys?: { p256dh?: string; auth?: string };
       test?: boolean;
+      report?: { outcome?: string; step?: string; detail?: string; permission?: string; installed?: boolean };
     };
+    if (b.report) {
+      // What happened when this person tried to turn notifications on.
+      const r = b.report;
+      const cut = (v: unknown, n: number) => (typeof v === 'string' && v ? v.slice(0, n) : null);
+      await query(
+        `INSERT INTO push_setup_log (user_id, outcome, step, detail, permission, installed, user_agent)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          user.id,
+          cut(r.outcome, 40) ?? 'unknown',
+          cut(r.step, 40),
+          cut(r.detail, 500),
+          cut(r.permission, 20),
+          typeof r.installed === 'boolean' ? r.installed : null,
+          (req.headers.get('user-agent') ?? '').slice(0, 300) || null,
+        ],
+      );
+      await query(`DELETE FROM push_setup_log WHERE user_id = $1 AND created_at < now() - interval '30 days'`, [user.id]);
+      return { status: 204 };
+    }
     if (b.test) {
       const sent = await sendTestPush(user.id);
       return { status: 200, jsonBody: { sent } };

@@ -4,6 +4,7 @@ import {
   cardRating,
   cardStats,
   cardTier,
+  avatarForGender,
   cleanAvatar,
   cleanCountry,
   cleanScores,
@@ -37,6 +38,7 @@ interface EvalRow {
   number: string;
   primary_pos: string | null;
   avatar: unknown;
+  gender: string | null;
   public_id: string | null;
   heritage_country: string | null;
   scores: EvaluationScores;
@@ -88,7 +90,7 @@ export async function evaluationsHandler(
       await ensurePlayerIds(guard.team.teamId).catch(() => 0);
       const [rows, place] = await Promise.all([
         query<EvalRow>(
-          `SELECT p.id AS player_id, p.name AS player_name, p.number, p.primary_pos, p.avatar,
+          `SELECT p.id AS player_id, p.name AS player_name, p.number, p.primary_pos, p.avatar, p.gender,
                   p.public_id, p.heritage_country,
                   COALESCE(e.scores, '{}'::jsonb) AS scores, e.strong_foot, e.notes,
                   COALESCE(e.updated_at, to_timestamp(0)) AS updated_at
@@ -116,7 +118,9 @@ export async function evaluationsHandler(
         playerName: r.player_name,
         number: r.number,
         position: r.primary_pos,
-        avatar: r.avatar ? cleanAvatar(r.avatar) : null,
+        avatar: r.avatar ? avatarForGender(cleanAvatar(r.avatar), r.gender) : null,
+        // Shapes the avatar shown until one is designed (girls get a ponytail).
+        gender: r.gender ?? null,
         // Any parent of the child designs the avatar, whatever else they are on the team.
         canEditAvatar: mine.has(r.player_id),
         // On the card (Fady, 10/19): the player's ID, the flags, the team and its region's logo.
@@ -188,7 +192,7 @@ export async function playerAvatarHandler(req: HttpRequest, ctx: InvocationConte
     const user = await requireUser(req);
     if (!user) return { status: 401, jsonBody: { error: 'Not authenticated' } };
     const b = (await req.json()) as { playerId?: string; avatar?: unknown; heritage?: string | null };
-    const player = await queryOne<{ id: string; team_id: string }>('SELECT id, team_id FROM player WHERE id = $1', [
+    const player = await queryOne<{ id: string; team_id: string; gender: string | null }>('SELECT id, team_id, gender FROM player WHERE id = $1', [
       String(b.playerId ?? '').slice(0, 36),
     ]);
     if (!player) return { status: 403, jsonBody: { error: 'You do not have access to this.', code: 'FORBIDDEN' } };
@@ -204,7 +208,8 @@ export async function playerAvatarHandler(req: HttpRequest, ctx: InvocationConte
         jsonBody: { error: 'Your plan does not include this feature.', code: 'UPGRADE_REQUIRED', details: { feature: 'playerEvaluation' } },
       };
     }
-    const avatar = cleanAvatar(b.avatar);
+    // Glitter and rosy cheeks are for girls only (Fady, 10/20).
+    const avatar = avatarForGender(cleanAvatar(b.avatar), player.gender);
     // The family's home country, shown next to the American flag (optional).
     const heritage = 'heritage' in b ? cleanCountry(b.heritage) : undefined;
     if (heritage === undefined) {

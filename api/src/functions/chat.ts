@@ -49,6 +49,7 @@ const ROLE_LABEL: Record<string, string> = {
   org_admin: 'Organization admin',
   director: 'Director',
   region_admin: 'Region admin',
+  scheduler: 'Scheduler',
   platform_admin: 'Lineup support',
 };
 

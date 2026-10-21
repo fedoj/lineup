@@ -288,3 +288,27 @@ test('an archived team is read-only for everyone, platform admins included', () 
   // Someone with no access still gets the plain denial, not "archived".
   assert.equal(canOnTeam(ctx(), archived, 'game.edit').reason, 'no-membership');
 });
+
+test('a scheduler schedules games and keeps field maps, nothing else', () => {
+  const c = ctx({ memberships: [m('scheduler', 'regionId', 'region-1')], tier: 'organization' });
+  const scope = { orgId: 'org-1', regionId: 'region-1' };
+  for (const action of ['fixture.schedule', 'field.manage', 'team.view', 'game.view']) {
+    assert.equal(canOnScope(c, scope, action).allowed, true, action);
+  }
+  for (const action of ['game.create', 'game.delete', 'member.invite', 'roster.add', 'roster.view', 'region.manage', 'team.create', 'org.billing', 'lineup.edit']) {
+    assert.equal(canOnScope(c, scope, action).allowed, false, action);
+  }
+  assert.equal(canOnScope(c, { orgId: 'org-1', regionId: 'region-2' }, 'fixture.schedule').allowed, false);
+});
+
+test('league staff keep scheduling and field maps; admins and directors give the scheduler role', () => {
+  for (const role of ['org_admin', 'director', 'region_admin']) {
+    const c = ctx({ memberships: [m(role, 'regionId', 'region-1')], tier: 'organization' });
+    assert.equal(canOnScope(c, { orgId: 'org-1', regionId: 'region-1' }, 'fixture.schedule').allowed, true, role);
+    assert.equal(canOnScope(c, { orgId: 'org-1', regionId: 'region-1' }, 'field.manage').allowed, true, role);
+    assert.ok(assignableRoles(c, role).includes('scheduler'), role);
+  }
+  const coach = ctx({ memberships: [m('coach', 'teamId', 'team-1')], tier: 'organization' });
+  assert.equal(assignableRoles(coach, 'coach').includes('scheduler'), false);
+  assert.equal(canOnScope(coach, { orgId: 'org-1', regionId: 'region-1' }, 'fixture.schedule').allowed, false);
+});

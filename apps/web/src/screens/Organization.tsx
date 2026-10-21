@@ -13,11 +13,13 @@ const ROLES_BY_SCOPE: Record<'org' | 'region' | 'team', Array<[Role, string]>> =
     ['org_admin', 'Org admin'],
     ['director', 'Org director (renames, invites admins)'],
     ['region_admin', 'Region admin (all regions)'],
+    ['scheduler', 'Scheduler (schedules league and tournament games, field maps)'],
     ['viewer', 'Viewer'],
   ],
   region: [
     ['director', 'Region director'],
     ['region_admin', 'Region admin'],
+    ['scheduler', 'Scheduler (schedules league and tournament games, field maps)'],
     ['viewer', 'Viewer'],
   ],
   // Parents join from the team's Team & roster tab, where their child is picked.

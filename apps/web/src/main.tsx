@@ -4,6 +4,7 @@ import App from './App';
 import { applyAppSite } from './lib/appSite';
 import TestSiteBanner from './components/TestSiteBanner';
 import { startInstallSupport } from './lib/install';
+import '@fontsource-variable/montserrat';
 import './styles.css';
 
 const root = document.getElementById('root');

@@ -7,6 +7,8 @@ import {
   CARD_STATS,
   COUNTRY_CODES,
   DEFAULT_AVATAR,
+  defaultAvatarFor,
+  GIRL_ONLY_PARTS,
   flagEmoji,
   HOME_COUNTRY,
   type Avatar,
@@ -16,7 +18,8 @@ import { api, type PlayerEvaluation } from '../lib/api';
 import { renderPlayerCardImage } from '../lib/exportImages';
 import { canvasBlob, fileSlug, shareFile } from '../lib/shareFile';
 import { PaidLock, useFeature } from '../lib/features';
-import { FigureArt, PlayerFigure } from './PlayerAvatar';
+import { FigureArt, PlayerFace, PlayerFigure } from './PlayerAvatar';
+import { loadLorelei } from '../lib/lorelei';
 
 /** A country's name in the reader's language: "EG" -> "Egypt". */
 export function countryName(code: string): string {
@@ -42,6 +45,7 @@ const CHOICE_LABEL: Record<string, string> = {
   black: 'Black', brown: 'Brown', blonde: 'Blonde', red: 'Red', auburn: 'Auburn', gray: 'Gray', blue: 'Blue', pink: 'Pink',
   almond: 'Almond', smile: 'Smiling', green: 'Green', hazel: 'Hazel',
   none: 'None', sport: 'Sport',
+  glitter: 'Glitter ✨', natural: 'Natural', rosy: 'Rosy',
 };
 
 /** Card colours by tier: the metal, its rim and the lettering. */
@@ -84,7 +88,8 @@ export function PlayerCardArt({ ev }: { ev: PlayerEvaluation }) {
     const r = 420;
     return `M160 150 L${(160 + r * Math.cos(a0)).toFixed(1)} ${(150 + r * Math.sin(a0)).toFixed(1)} L${(160 + r * Math.cos(a1)).toFixed(1)} ${(150 + r * Math.sin(a1)).toFixed(1)} Z`;
   });
-  const idLabel = ev.publicId ? `ID ${ev.publicId}` : null;
+  // Just the code, no "ID" in front (Fady, 10/20).
+  const idLabel = ev.publicId ?? null;
   const idWidth = idLabel ? Math.max(70, idLabel.length * 6.6 + 18) : 0;
   return (
     <svg className="fc-art" viewBox="0 0 300 420" width="300" height="420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`${ev.playerName ?? 'Player'} card`}>
@@ -128,7 +133,7 @@ export function PlayerCardArt({ ev }: { ev: PlayerEvaluation }) {
         </text>
         {/* The player, big, from the waist up. */}
         <g transform="translate(60 14)">
-          <FigureArt a={ev.avatar ?? DEFAULT_AVATAR} id={`${id}fig`} fade />
+          <FigureArt a={ev.avatar ?? defaultAvatarFor(ev.gender)} id={`${id}fig`} fade logo={ev.regionLogo ?? null} />
         </g>
         {/* The lower band the name and stats sit on. */}
         <rect x="0" y="262" width="300" height="160" fill={`url(#${id}-band)`} />
@@ -217,8 +222,26 @@ function cardSvgElement(ev: PlayerEvaluation): SVGSVGElement | null {
 }
 
 /** The card as a picture, the same as on screen, with the site under it. */
-export function makeCardPicture(ev: PlayerEvaluation): Promise<HTMLCanvasElement> {
-  return renderPlayerCardImage({ ev, cardSvg: cardSvgElement(ev), badgeRow: CARD_BADGE_ROW, countryName });
+export async function makeCardPicture(ev: PlayerEvaluation): Promise<HTMLCanvasElement> {
+  // The face art must be loaded before the card is drawn off screen.
+  await loadLorelei();
+  // A picture drawn from an SVG cannot fetch images, so the shirt's region logo goes in inline.
+  const logo = ev.regionLogo ? await inlineImage(ev.regionLogo) : null;
+  return renderPlayerCardImage({ ev, cardSvg: cardSvgElement({ ...ev, regionLogo: logo }), badgeRow: CARD_BADGE_ROW, countryName });
+}
+
+async function inlineImage(url: string): Promise<string | null> {
+  try {
+    const blob = await (await fetch(url)).blob();
+    return await new Promise<string>((ok, no) => {
+      const r = new FileReader();
+      r.onload = () => ok(String(r.result));
+      r.onerror = () => no(r.error);
+      r.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -263,12 +286,15 @@ export function AvatarEditor({
   playerName,
   initial,
   initialHeritage = null,
+  gender = null,
   onSaved,
   onCancel,
 }: {
   playerId: string;
   playerName: string;
   initial: Avatar | null | undefined;
+  /** Girls also get hair glitter and rosy cheeks (Fady, 10/20). */
+  gender?: 'boy' | 'girl' | null;
   /** The family's home country, shown as a second flag on the card. */
   initialHeritage?: string | null;
   onSaved: (a: Avatar) => void;
@@ -297,9 +323,28 @@ export function AvatarEditor({
       <div className="avatar-preview">
         <PlayerFigure avatar={a} width={170} title={`${playerName} avatar preview`} />
       </div>
-      {(Object.keys(AVATAR_OPTIONS) as AvatarPart[]).map((part) => (
+      {(Object.keys(AVATAR_OPTIONS) as AvatarPart[])
+        .filter((part) => gender === 'girl' || !GIRL_ONLY_PARTS.includes(part))
+        .map((part) => (
         <div key={part} className="avatar-part">
           <span className="avatar-part-label">{AVATAR_LABELS[part]}</span>
+          {part === 'hair' ? (
+            <div className="hair-tiles" role="radiogroup" aria-label={AVATAR_LABELS[part]}>
+              {AVATAR_OPTIONS.hair.map((v, i) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={a.hair === v}
+                  aria-label={`Hairstyle ${i + 1}`}
+                  className={`hair-tile${a.hair === v ? ' on' : ''}`}
+                  onClick={() => setA((prev) => ({ ...prev, hair: v }))}
+                >
+                  <PlayerFace avatar={{ ...a, hair: v, glasses: 'none' }} size={48} />
+                </button>
+              ))}
+            </div>
+          ) : (
           <div className="chips" role="radiogroup" aria-label={AVATAR_LABELS[part]}>
             {(AVATAR_OPTIONS[part] as readonly string[]).map((v) => (
               <button
@@ -314,6 +359,7 @@ export function AvatarEditor({
               </button>
             ))}
           </div>
+          )}
         </div>
       ))}
       <div className="avatar-part">

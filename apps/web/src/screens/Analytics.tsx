@@ -47,6 +47,7 @@ export default function Analytics({
     <>
       <section className="card">
         <h2>Season</h2>
+        <p className="note tagline">Every game tells a story. Here's yours so far 📈</p>
         <div className="stat-row">
           <div className="stat">
             <span className="stat-n">{record.played}</span>
