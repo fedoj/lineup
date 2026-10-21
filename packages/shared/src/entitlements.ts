@@ -256,6 +256,7 @@ export function premiumTierFor(role: string | null | undefined): TierId {
     case 'org_admin':
     case 'director':
     case 'region_admin':
+    case 'scheduler':
       return 'organization';
     case 'parent':
     case 'player':

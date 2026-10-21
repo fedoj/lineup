@@ -75,6 +75,20 @@ const ROLES: Array<{ role: string; who: string; can: string[]; cannot: string[] 
     ],
   },
   {
+    role: 'Scheduler',
+    who: 'Schedules the games of an organization’s or region’s leagues and tournaments. Given by its admins and directors.',
+    can: [
+      'Schedule and edit games in the leagues and tournaments that already exist: dates, times, places and fields',
+      'Add and change the field maps',
+      'See the teams and games they schedule',
+    ],
+    cannot: [
+      'Create or delete leagues and tournaments, or delete games',
+      'Approve or place players, invite people, or change teams and rosters',
+      'See billing',
+    ],
+  },
+  {
     role: 'Organization director and organization admin',
     who: 'Run the whole organization. Whoever starts the organization is its director.',
     can: [
@@ -98,7 +112,7 @@ const ROLES: Array<{ role: string; who: string; can: string[]; cannot: string[] 
     ],
     cannot: [
       'See team chats, rosters or stats outside the games they referee',
-      "Referee a team's own games (friendlies and independent teams)",
+      "Referee a team's own games (friendlies and My Own Teams)",
     ],
   },
 ];
@@ -164,7 +178,7 @@ export default function RolesGuide() {
             parents; they subscribe on their own.
           </li>
           <li>
-            A coach's own independent teams stay theirs. Joining an organization adds the teams the
+            A coach's own teams (My Own Teams) stay theirs. Joining an organization adds the teams the
             organization set up; it does not move existing teams into it.
           </li>
           <li>A team can have more than one team parent. The coach assigns them.</li>

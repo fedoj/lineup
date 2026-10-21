@@ -101,21 +101,93 @@ function urlBase64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
+/** Which step of turning notifications on went wrong, with the browser's reason. */
+export class PushSetupError extends Error {
+  constructor(
+    public step: 'worker' | 'subscribe' | 'save',
+    public reason: string,
+  ) {
+    super(reason);
+  }
+}
+
+/** A plain-language explanation of why notifications aren't on, and what to do. */
+export function pushProblemText(problem: NotifyState | PushSetupError | Error): string {
+  if (problem instanceof PushSetupError) {
+    if (problem.step === 'subscribe') {
+      return /push service|AbortError|NotAllowedError|InvalidStateError/i.test(problem.reason)
+        ? 'Your phone allowed notifications, but its browser could not reach the notification service. Use Chrome (in Brave, turn on Settings › Privacy › "Use Google services for push messaging"). Phones without Google Play services can’t get web notifications.'
+        : `Your phone allowed notifications, but signing this device up failed (${problem.reason}).`;
+    }
+    if (problem.step === 'worker') return `Lineup’s notification helper didn’t start on this device (${problem.reason}). Close Lineup fully and open it again.`;
+    return 'This device is ready, but saving it to Lineup failed. Check your connection and try again.';
+  }
+  if (problem === 'denied') {
+    return platform() === 'android'
+      ? 'Notifications are blocked for Lineup. Hold the Lineup icon › App info › Notifications, and turn them on (in Chrome: Settings › Site settings › Notifications). Then come back here.'
+      : 'Notifications are blocked for Lineup. Allow them in your browser or phone settings for this site, then come back here.';
+  }
+  if (problem === 'default') {
+    return 'Your phone didn’t show the “Allow notifications” question, or it was closed. Tap the button again; if nothing appears, check Chrome › Settings › Site settings › Notifications for Lineup.';
+  }
+  if (problem === 'needs-install') return 'On iPhone and iPad, add Lineup to your home screen first, then open it from there.';
+  if (problem === 'unsupported') return 'This browser can’t show notifications. You’ll still see them under the 🔔 bell.';
+  return problem instanceof Error ? problem.message : 'Could not turn notifications on.';
+}
+
 /**
  * Ask permission, then subscribe this device to push and give the
- * subscription to the server. Returns the resulting permission.
+ * subscription to the server. Returns the resulting permission; throws a
+ * PushSetupError when a later step fails.
  */
 export async function turnOnNotifications(publicKey: string, save: (sub: PushSubscriptionJSON) => Promise<unknown>): Promise<NotifyState> {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') return permission as NotifyState;
-  const reg = (await navigator.serviceWorker.getRegistration()) ?? (await navigator.serviceWorker.register('/sw.js'));
-  await navigator.serviceWorker.ready;
-  const existing = await reg.pushManager.getSubscription();
-  const sub =
-    existing ??
-    (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToBytes(publicKey) }));
-  await save(sub.toJSON());
+  await subscribeThisDevice(publicKey, save);
   return 'granted';
+}
+
+async function subscribeThisDevice(publicKey: string, save: (sub: PushSubscriptionJSON) => Promise<unknown>) {
+  const reason = (e: unknown) => (e instanceof Error ? `${e.name}: ${e.message}` : String(e)).slice(0, 300);
+  let reg: ServiceWorkerRegistration;
+  try {
+    reg = (await navigator.serviceWorker.getRegistration()) ?? (await navigator.serviceWorker.register('/sw.js'));
+    // `ready` can wait forever if the worker never activates; give up after 10 s.
+    await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((_, no) => setTimeout(() => no(new Error('the helper did not activate within 10 seconds')), 10000)),
+    ]);
+  } catch (e) {
+    throw new PushSetupError('worker', reason(e));
+  }
+  let sub: PushSubscription;
+  try {
+    sub =
+      (await reg.pushManager.getSubscription()) ??
+      (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToBytes(publicKey) }));
+  } catch (e) {
+    throw new PushSetupError('subscribe', reason(e));
+  }
+  try {
+    await save(sub.toJSON());
+  } catch (e) {
+    throw new PushSetupError('save', reason(e));
+  }
+}
+
+/** Tell the server how turning notifications on went on this device. */
+export function reportPushSetup(
+  send: (r: { outcome: string; step?: string; detail?: string; permission?: string; installed?: boolean }) => Promise<unknown>,
+  outcome: NotifyState | PushSetupError | Error,
+) {
+  const permission = typeof Notification === 'undefined' ? 'none' : Notification.permission;
+  const r =
+    outcome instanceof PushSetupError
+      ? { outcome: 'failed', step: outcome.step, detail: outcome.reason }
+      : outcome instanceof Error
+        ? { outcome: 'failed', step: 'other', detail: `${outcome.name}: ${outcome.message}`.slice(0, 300) }
+        : { outcome: outcome === 'granted' ? 'on' : outcome };
+  void send({ ...r, permission, installed: isInstalled() }).catch(() => undefined);
 }
 
 /** Stop push on this device. */
@@ -145,12 +217,7 @@ export async function refreshPushSubscription(
   save: (sub: PushSubscriptionJSON) => Promise<unknown>,
 ): Promise<boolean> {
   if (notificationState() !== 'granted') return false;
-  const reg = (await navigator.serviceWorker.getRegistration()) ?? (await navigator.serviceWorker.register('/sw.js'));
-  await navigator.serviceWorker.ready;
-  const sub =
-    (await reg.pushManager.getSubscription()) ??
-    (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToBytes(publicKey) }));
-  await save(sub.toJSON());
+  await subscribeThisDevice(publicKey, save);
   return true;
 }
 

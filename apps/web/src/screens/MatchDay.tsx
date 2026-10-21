@@ -430,6 +430,12 @@ export default function MatchDay({ game, games, players: roster, teamName = '', 
         {section === 'lineup' && (
           <>
             {editable && (
+              <p className="note tagline">
+                Setting formations and lineups has never been easier ⚡ Drag players into place, and every game you
+                save builds a history of what worked.
+              </p>
+            )}
+            {editable && (
               <div className="matchday-tools">
                 <div className="matchday-tools-row">
                   <label>

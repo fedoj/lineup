@@ -49,7 +49,7 @@ it and `team.create` in the target region.
 
 ## Roles
 
-`director` · `org_admin` · `region_admin` · `coach` · `assistant` ·
+`director` · `org_admin` · `region_admin` · `scheduler` · `coach` · `assistant` ·
 `team_parent` · `parent` · `player` · `viewer`
 
 A `director` (at an organization or a region) is the top role at that level
@@ -59,6 +59,16 @@ help run it. Organization and region admins keep everything else (settings,
 logo, regions, teams, invites). A region-scope role never gets
 organization-level rights, so a region director cannot move their region to
 another organization.
+
+`scheduler` (Fady, 10/20; migration 064, rank 45, organization or region only,
+given by its admins and directors): schedules and edits the games of existing
+leagues and tournaments (`fixture.schedule`: fixture POST/PATCH and cancel,
+`canScheduleInCompetition`, the competition's `canSchedule`) and keeps the field
+maps (`field.manage`), and sees the teams and games (`team.view`, `game.view`).
+Deleting games stays with staff (`game.create`), and so do creating leagues and
+tournaments, sign-ups, invites and rosters. With no Settings tab, a scheduler
+finds the region's field maps on its Games tab. Staff roles hold both new
+actions too.
 
 `team_parent` (team mom / manager) runs team events, the snack schedule and
 calendar sharing (`event.*`, `snack.*`, `calendar.share`). They see the whole
@@ -128,8 +138,22 @@ the site on it. Redesigned again the same day in the EA FC style Fady pointed to
  SVG drawn as a picture cannot show emoji or load logos. The share picture
  (`makeCardPicture`) renders that same SVG off screen, so it always matches. Player avatars
 (`player.avatar`, migration 044; `packages/shared/src/avatar.ts`,
-`components/PlayerAvatar.tsx`, `POST /api/player-avatar`): a cartoon drawn as
-SVG (skin tone, face shape, hairstyle and colour, eyes and eye colour, glasses),
+`components/PlayerAvatar.tsx`, `POST /api/player-avatar`): a cartoon (skin
+tone, face shape, hairstyle and colour, eyes, glasses) drawn with the Lorelei
+avatar art since 10/20 (DiceBear `@dicebear/lorelei`, art by Lisa Wischofsky,
+CC0; `lib/lorelei.ts`): its 48 hairstyles (`h01`..`h48`) are the hairstyle
+picker, recolored; names saved before (`short`, `afro`…) map to the closest
+one (`LEGACY_HAIR`). The art (~47 KB gz) loads as its own chunk when idle;
+eye color is a colored iris with a pupil dot drawn over each eye (`IRIS` in
+`lib/lorelei.ts`; the art's eye line stays dark, as coloring it colored the
+lids); until a parent designs one, girls show long wavy hair (`h35`) and the
+slimmer `heart` face (`defaultAvatarFor`, from `player.gender`, sent with the
+evaluations). Girls also get two optional parts (`GIRL_ONLY_PARTS`, Shadi 10/20):
+glitter in the hair (sparkles at points precomputed per hairstyle,
+`data/avatarGlitter.ts`) and rosy cheeks; `avatarForGender` drops them for
+anyone else, on save and on read. On the card the tee has a scooped collar,
+narrows under the arms and carries the region's logo on the chest (inlined into
+the shared picture),
 designed by any parent linked to the player (also a coach who is the child's
 parent), on any plan; never a photo. Evaluation lives on the roster (Fady,
 10/18): Team & roster shows each player's avatar (instead of the old boy or girl
@@ -266,6 +290,10 @@ lifecycle in `api/src/lib/trials.ts`; UI in `components/Trial.tsx`). No card.
 - Static Web Apps managed functions have no timer, so `settleTrials()` runs
   lazily from `buildAccessContext` and `/api/me`, at most once a minute per
   instance.
+- Account shows one **Your plan** card (Fady, 10/20): the plan and billing, then
+  the free trial (`TrialCard embedded`, `#trial`), then the plans (`#plans`).
+  Paid plans with a trial on offer have **Start free trial** next to Subscribe,
+  which picks that trial (`requested`) and scrolls to it.
 - Not built yet: archiving free accounts inactive for a year.
 
 ### Home page plan picker
@@ -279,6 +307,14 @@ once signed in, the app opens Account › Free trial with that trial preselected
 ("Start free" stores `free` and opens team set-up instead). Creating an account
 lands on `/plans`, the same picker inside the app, so a new person chooses a
 plan first. The answer is kept (`lineup.planFor`) for Account's suggestion.
+
+Someone with no team, organization or region yet is asked first (Shadi, 10/20;
+`components/Onboard.tsx`, kept in `lineup.onboard`): **I'm a parent** asks for
+the league or tournament sign-up code and opens Account's sign-up with it (no
+team form), and **I coach my own team** shows the new team form. People with a
+sign-up already are treated as parents. A parent can later tap **I'm starting to
+coach my own team** on Account (`lineup.coachingOwn`), which lifts the family-only
+block on ＋ New team and points to the Coach plan.
 
 ### Account › Plans
 
@@ -473,7 +509,39 @@ A team's own games are added from its Calendar (`/api/friendlies`) and edited
 there; Team & roster no longer lists games. `game.is_friendly` (migration 021)
 marks them: a team inside an organization or region may only add friendlies
 (its regular games come from the top as fixtures), while a standalone team adds
-regular games (`kind: 'game'`) or friendlies.
+regular games (`kind: 'game'`) or friendlies. Opponents (Shadi, 10/20): a
+league team picks teams of its own organization or region; a standalone team
+picks only other standalone teams, never a league team (even one its coach also
+coaches): the ones its coach is on, plus any other found by name (`search`, 3+
+letters; the GET returns `searchable`). POST checks the same rule
+(`allowedOpponent`). There is no separate Games menu item any more: a
+standalone coach adds games from the team's Calendar ("＋ Game"), and a
+standalone team has its own **⚽ Games** tab (Shadi, 10/20; `screen 'seasons'`
+on a team, `GET /api/competitions?scope=team`): only its coach's own leagues
+and tournaments (`owner_user_id`) and the team's friendlies, never an
+organization's or region's. A coach's own league or tournament now takes only
+standalone teams (`eligibleTeams`; since 10/19 it took any team they coached).
+
+**Friendly requests** (Shadi, 10/20; migration 065 `friendly_request`,
+`/api/friendly-requests`, `components/FriendlyRequests.tsx`). On a team in an
+organization or region, "＋ Game" opens only "Request a friendly": the
+opponent is picked from the organization's other teams (no typed names, no
+league or tournament games: `LEAGUE_SCHEDULES_GAMES`, `PICK_TEAM`), and the
+POST returns 202 with a pending request. Approval needs `fixture.schedule`:
+both teams in one region, that region's staff (admins, directors, schedulers)
+or the organization's; across two regions, both regions' staff
+(`team_ok_by` and `opponent_ok_by`), or the organization's staff alone
+(`org_ok_by`). A requester who holds a side's approval gives it at once, so
+staff requests in their own region go straight on. Approved, the paired games
+are written as before (`insertFriendlyGames`) and the other team and the
+requester are told; declined (optional reason) tells the requester. Staff are
+notified with a link to their Games tab, which shows a Friendly requests card
+(`approvesFriendlies`); the team's Calendar lists its pending and declined
+ones, with Cancel. Organization and region Games tabs have **＋ Friendly** for
+their staff who add games (Shadi, 10/20; `friendlyTeams` in the list): pick
+the home team from the scope and the away team from its organization; it goes
+straight on both calendars when the caller approves both sides (both teams
+are told), otherwise it waits for the other region or the organization.
 
 Team events (`team_event`, migration 019): a team's Calendar has a Team events
 section (party, picture day, fundraiser, meeting, tournament, tryout, volunteer shift)
@@ -557,7 +625,9 @@ same thing, named like Fall 2026 or 2026–2027) or Tournament.
   region or not (Fady, 10/19), and regular games in it are allowed for those teams.
   Every league and tournament, cups included, shows its sign-up link and code on
   its own page for its managers (`/api/competition-signups`: the coach, or
-  `member.invite` staff of its region or organization). Managers create, rename, change dates, add and remove teams.
+  `member.invite` staff of its region or organization). Coaches and assistants of a team in it
+  see the link and code to share (`shareOnly`, 10/20), but cannot approve,
+  place or change dates. Managers create, rename, change dates, add and remove teams.
   An organization's staff may add teams from any of its regions, even to a
   region's league (Fady 10/17); region staff add their own region's teams. On
   the app's own page "Run by" lists the organization (all regions) first.
@@ -576,7 +646,7 @@ same thing, named like Fall 2026 or 2026–2027) or Tournament.
   listed under Past, everything kept. The API also returns `deleteOn` (3 months
   after the end) in case Fady wants ended ones cleaned up; nothing deletes them.
 - **Where** (Fady, 10/16: they are not part of a team; renamed **Games & matches** 10/19, menu emoji 🏟️, the team calendar's button "＋ Match"):
-  the ☰ menu's 🏆 Games (`/competitions`, `?scope=mine`) lists every one the
+  the Games page (`/competitions`, `?scope=mine`; no ☰ menu item since 10/20; a standalone team's ＋ Game › League or tournament match opens the team's own Games tab instead) lists every one the
   caller runs or takes part in and creates one for any place they schedule
   games ("Run by": their own standalone teams, an organization or one of its
   regions). Its buttons are ＋ League or season, ＋ Tournament and ＋ Friendly
@@ -860,6 +930,36 @@ practices and (since 10/16) games; marking practice attendance by hand is paid
 for someone else stays with coaches and assistants. Removing a schedule
 deletes only its upcoming practices.
 
+## Look and feel
+
+- **Font** (Fady, 10/20): Montserrat (`@fontsource-variable/montserrat`,
+  bundled with the app, OFL), with lighter weights throughout: headings 600,
+  nothing above 700, so pages aren't a wall of bold.
+- **Folded cards** (10/20, `lib/foldCards.ts`): on the Account, Team, Teams,
+  Stats, Settings, Organizations, Sign-ups, Referee and Help pages each card
+  shows only its title until tapped (a `section.card` whose first child is an
+  h2 or a `.card-head`). `data-fold-open` keeps a card open (the roster, player
+  cards, help answers, how players join); links to a card (`#plans`, `#trial`)
+  open it, and `revealInFold(el)` opens one before scrolling to it. What's
+  opened stays open for the visit (sessionStorage).
+- **Verse of the day** (10/20, `components/VerseOfTheDay.tsx`,
+  `data/asvVerses.ts`): a Bible verse at the bottom of every page, from 340
+  verses on love, peace, forgiveness and the fruit of the Spirit, American
+  Standard Version (1901, public domain). Each page shows a different verse
+  and they all change each day (Pacific time); the list loads after the page
+  and costs the server nothing.
+- **Words** (10/20): the leagues-and-tournaments page is "Games" (⚽), a
+  coach's own teams are "My Own Teams", a player's code shows without "ID"
+  in front, and the calendar's button is "＋ Game". The menu's Games item (a
+  coach's own leagues and tournaments) is the first item under My Own Teams;
+  organizations and regions use their own Games tab.
+- **Help answers** (10/20, `components/HelpAnswers.tsx`): searchable questions
+  and answers on Help & support, above "Ask us something".
+- **How players join** (10/20): on the Teams tab only (`JoinHelp`, with a
+  button to the leagues and tournaments), and on a team's Team & roster
+  (`RosterHelp`): for a team in a region or organization, players are placed by
+  its staff; for My Own Teams, start a league or tournament and share its
+  sign-up link, or "No, I'll add the roster myself" (remembered per team).
 ## Install the app and notifications
 
 Fady, 10/19. The website installs like an app: `public/manifest.webmanifest`
@@ -901,6 +1001,14 @@ adds `notification.pushed_at`; a batch is claimed with `FOR UPDATE SKIP LOCKED`
 so it's sent once. Grouped chat and lineup notifications clear `pushed_at` when
 they gather more, so the phone's notification is replaced with the new count
 (same `tag`). Devices the push service reports gone (404/410) are removed.
+
+When it doesn't work (10/20): `lib/install.ts` splits turning on into steps
+(permission, helper, subscribe, save) and `pushProblemText` tells the person
+what to do for each (blocked in settings, prompt never shown, the browser's
+push service off, e.g. Brave or phones without Google Play services). Every
+attempt, and once a day where the device stands, is reported with
+`POST /api/push { report }` into `push_setup_log` (migration 063, kept 30 days:
+outcome, step, the browser's error, permission, installed, user agent).
 
 ## Android app and ads
 

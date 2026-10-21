@@ -388,6 +388,30 @@ export interface FriendlyInput {
 }
 
 /** A Lineup team a friendly can be played against. */
+/** A friendly a team in an organization or region asked for, waiting for (or past) its staff's approval. */
+export interface FriendlyRequest {
+  id: string;
+  teamId: string;
+  teamName: string;
+  teamRegion: string | null;
+  opponentTeamId: string;
+  opponentName: string;
+  opponentRegion: string | null;
+  date: string;
+  kickoff: string;
+  isHome: boolean;
+  location: string;
+  field: string | null;
+  status: 'pending' | 'approved' | 'declined' | 'cancelled';
+  requestedBy: string | null;
+  /** Who still has to approve, in words (pending only). */
+  waitingFor: string | null;
+  declineReason: string | null;
+  gameId: string | null;
+  canApprove: boolean;
+  canCancel: boolean;
+}
+
 export interface FriendlyOpponent {
   id: string;
   name: string;
@@ -474,6 +498,10 @@ export interface CompetitionList {
   competitions: CompetitionSummary[];
   /** The Games page's Friendlies section (mine, region and organization lists). */
   friendlies?: FriendlyItem[];
+  /** Region and organization lists: the caller approves friendly requests there. */
+  approvesFriendlies?: boolean;
+  /** Region and organization lists, for staff who add games: the teams a friendly can be added between. */
+  friendlyTeams?: Array<{ id: string; name: string; regionName: string | null }>;
 }
 
 /** Two-step sign-in: unavailable where it isn't set up (or for other sign-in providers). */
@@ -506,6 +534,8 @@ export interface CompetitionDetail extends Omit<CompetitionSummary, 'teams' | 'g
   ownerKind: 'coach' | 'region' | 'org';
   /** Managers, while it has not ended. */
   canEdit: boolean;
+  /** May schedule its games: managers and the organization's or region's scheduler (Fady, 10/20). */
+  canSchedule?: boolean;
   teams: Array<{ id: string; name: string; regionName: string | null; reachable: boolean }>;
   eligibleTeams: Array<{ id: string; name: string; regionName: string | null }>;
   standings: {
@@ -873,6 +903,8 @@ export interface HierarchyRegion {
   canRename?: boolean;
   /** Invite people at this region or a team in it. */
   canInvite?: boolean;
+  /** Schedule league and tournament games and keep the field maps (staff and schedulers). */
+  canSchedule?: boolean;
   /** Set while a standalone region is on its free trial. */
   trialEndsAt?: string | null;
 }
@@ -886,6 +918,8 @@ export interface HierarchyOrg {
   canRename?: boolean;
   /** Invite people at this organization or anything in it. */
   canInvite?: boolean;
+  /** Schedule league and tournament games (staff and schedulers). */
+  canSchedule?: boolean;
   /** Set while the organization is on its free trial. */
   trialEndsAt?: string | null;
   addRegion: ScopeDecision;
@@ -1577,9 +1611,27 @@ export const api = {
       | { action: 'bracketWinner'; id: string; matchId: string; winner: 'home' | 'away' | null }
       | { action: 'bracketSchedule'; id: string; matchId: string; date: string; kickoff?: string; location?: string },
   ) => request<unknown>('/competitions', body(b)),
-  createFriendly: (f: FriendlyInput) => request<{ id: string; pairedGameId?: string | null }>('/friendlies', body(f)),
-  friendlyOpponents: (teamId: string) =>
-    request<{ opponents: FriendlyOpponent[] }>(`/friendlies?teamId=${encodeURIComponent(teamId)}`),
+  /** A team in an organization or region gets back a pending request (status 'pending') unless the caller may approve it. */
+  createFriendly: (f: FriendlyInput) =>
+    request<{
+      id?: string;
+      pairedGameId?: string | null;
+      requestId?: string;
+      status?: 'approved' | 'pending';
+      waitingFor?: string;
+    }>('/friendlies', body(f)),
+  friendlyRequests: (q: { teamId: string } | { scope: 'region' | 'org'; id: string }) =>
+    request<{ requests: FriendlyRequest[] }>(
+      'teamId' in q
+        ? `/friendly-requests?teamId=${encodeURIComponent(q.teamId)}`
+        : `/friendly-requests?scope=${q.scope}&id=${encodeURIComponent(q.id)}`,
+    ),
+  friendlyRequestAction: (b: { action: 'approve' | 'decline' | 'cancel'; id: string; reason?: string }) =>
+    request<{ status: string; waitingFor?: string; gameId?: string }>('/friendly-requests', body(b)),
+  friendlyOpponents: (teamId: string, search?: string) =>
+    request<{ opponents: FriendlyOpponent[]; searchable?: boolean; requestOnly?: boolean }>(
+      `/friendlies?teamId=${encodeURIComponent(teamId)}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
+    ),
 
   teamStats: (teamId: string) => request<CustomStats>(apiPath.teamStats(teamId)),
   addTeamStat: (teamId: string, name: string) =>
@@ -1699,6 +1751,8 @@ export const api = {
   savePush: (sub: PushSubscriptionJSON) => request<{ ok: boolean }>('/push', body(sub)),
   removePush: (endpoint: string) => request<void>(`/push?endpoint=${encodeURIComponent(endpoint)}`, { method: 'DELETE' }),
   testPush: () => request<{ sent: number }>('/push', body({ test: true })),
+  reportPush: (report: { outcome: string; step?: string; detail?: string; permission?: string; installed?: boolean }) =>
+    request<void>('/push', body({ report })),
   adminUser: (id: string) => request<any>(`/console?view=user&id=${encodeURIComponent(id)}`),
   adminUserAction: (b: {
     userId: string;
@@ -1836,6 +1890,8 @@ export interface CoachSignups {
   competition: SignupCompetition;
   signups: Signup[];
   teams: Array<{ id: string; name: string; division: string | null }>;
+  /** A coach of one of its teams: sees and shares the link, nothing else (Fady, 10/20). */
+  shareOnly?: boolean;
 }
 
 /** A parent's family on Account (Fady, 10/19). */
@@ -1875,6 +1931,8 @@ export interface PlayerEvaluation {
   position?: string | null;
   /** The cartoon a parent designed; null until they do. */
   avatar?: Avatar | null;
+  /** Boy or girl: the avatar shown until one is designed. */
+  gender?: 'boy' | 'girl' | null;
   /** The caller is this player's parent, so they may design the avatar. */
   canEditAvatar?: boolean;
   scores?: Record<string, number>;

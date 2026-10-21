@@ -157,13 +157,18 @@ body {
   background-image: var(--bg-tint);
   background-attachment: fixed;
   color: var(--ink);
-  font-family: 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial,
+  /* Montserrat, with light weights so pages aren't a wall of bold (Fady, 10/20). */
+  font-family: 'Montserrat Variable', Montserrat, 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial,
     sans-serif;
   font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+:where(h1, h2, h3, h4, h5, h6, strong, b, th, legend) {
+  font-weight: 600;
 }
 
 :where(a) {
@@ -286,7 +291,7 @@ body {
 .brand h1 {
   margin: 0;
   font-size: 17px;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0.6px;
   color: var(--ink);
   text-transform: uppercase;
@@ -311,7 +316,7 @@ h2 {
 /* ============================= buttons ============================== */
 .btn {
   font: inherit;
-  font-weight: 650;
+  font-weight: 560;
   min-height: var(--tap);
   padding: 10px 18px;
   border-radius: 10px;
@@ -407,7 +412,7 @@ h2 {
   font: inherit;
   cursor: pointer;
   min-height: 42px;
-  font-weight: 650;
+  font-weight: 560;
 }
 
 .menu-pop button:hover {
@@ -463,7 +468,7 @@ h2 {
 .drawer h3 {
   margin: 14px 8px 4px;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 600;
   letter-spacing: 0.6px;
   text-transform: uppercase;
   color: var(--muted);
@@ -481,7 +486,7 @@ h2 {
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-weight: 650;
+  font-weight: 560;
   text-align: left;
   cursor: pointer;
 }
@@ -498,19 +503,19 @@ h2 {
 .drawer .item.lvl1,
 .drawer .item.sub {
   padding-left: 28px;
-  font-weight: 600;
+  font-weight: 550;
 }
 
 .drawer .item.lvl2 {
   padding-left: 46px;
-  font-weight: 560;
+  font-weight: 520;
 }
 
 /* Rarely used, so deliberately quiet: creating a team should be a choice. */
 .drawer .item.small {
   min-height: 36px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 550;
   color: var(--muted);
 }
 
@@ -527,7 +532,7 @@ h2 {
   background: var(--amber);
   color: #fff;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0.4px;
   text-transform: uppercase;
 }
@@ -547,7 +552,7 @@ h2 {
   background: none;
   color: var(--brand);
   font: inherit;
-  font-weight: 650;
+  font-weight: 560;
   cursor: pointer;
 }
 
@@ -571,7 +576,7 @@ h2 {
   background: none;
   color: var(--brand);
   font: inherit;
-  font-weight: 650;
+  font-weight: 560;
   text-align: left;
   cursor: pointer;
 }
@@ -613,7 +618,7 @@ h2 {
   color: var(--muted);
   text-align: center;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 560;
 }
 
 .ad-banner.bottom {
@@ -636,7 +641,7 @@ h2 {
   place-items: center;
   filter: none;
   color: var(--ink);
-  font-weight: 800;
+  font-weight: 650;
   text-shadow: 0 1px 0 var(--surface);
 }
 
@@ -654,7 +659,7 @@ h2 {
 .theme-toggle button {
   font: inherit;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 550;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -724,7 +729,7 @@ h2 {
 .eyebrow {
   display: inline-block;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 1.2px;
   text-transform: uppercase;
   color: var(--accent);
@@ -738,7 +743,7 @@ h2 {
   margin: 0 0 12px;
   font-size: clamp(28px, 5vw, 40px);
   line-height: 1.1;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: -1px;
   color: var(--ink);
 }
@@ -832,7 +837,7 @@ h2 {
   margin: 0 0 8px;
   font-size: clamp(22px, 3.5vw, 30px);
   line-height: 1.15;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: -0.5px;
   color: var(--ink);
 }
@@ -909,7 +914,7 @@ h2 {
 }
 
 .plan-price {
-  font-weight: 800;
+  font-weight: 650;
   color: var(--accent);
 }
 
@@ -1000,7 +1005,7 @@ h2 {
 
 .tiers tr.current {
   background: color-mix(in srgb, var(--green) 14%, transparent);
-  font-weight: 650;
+  font-weight: 560;
 }
 
 .plan-compare td:not(:first-child),
@@ -1044,7 +1049,7 @@ h2 {
   color: var(--ink-soft);
   border-radius: 999px;
   font: inherit;
-  font-weight: 600;
+  font-weight: 550;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
@@ -1182,7 +1187,7 @@ h2 {
 }
 .slot-num {
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.1;
 }
 .slot-name {
@@ -1217,7 +1222,7 @@ h2 {
   align-items: center;
 }
 .clock-label {
-  font-weight: 650;
+  font-weight: 560;
 }
 .clock-done {
   font-size: 11px;
@@ -1225,7 +1230,7 @@ h2 {
 }
 .clock-time {
   font-size: 48px;
-  font-weight: 700;
+  font-weight: 600;
   text-align: center;
   font-variant-numeric: tabular-nums;
   letter-spacing: -1.5px;
@@ -1298,7 +1303,7 @@ h2 {
 .bench .hint {
   font-size: 11px;
   color: var(--green);
-  font-weight: 650;
+  font-weight: 560;
 }
 .chips {
   list-style: none;
@@ -1340,7 +1345,7 @@ h2 {
   border-radius: 999px;
   padding: 0 7px;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .chip.on .chip-num {
   background: rgba(255, 255, 255, 0.22);
@@ -1463,13 +1468,13 @@ h2 {
 }
 
 .games .game-no {
-  font-weight: 700;
+  font-weight: 600;
   min-width: 32px;
 }
 .games .score {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* ============================== stats =============================== */
@@ -1486,7 +1491,7 @@ h2 {
 }
 .stat-n {
   font-size: 28px;
-  font-weight: 700;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 .stat-n.good {
@@ -1886,7 +1891,7 @@ label.check {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-weight: 650;
+  font-weight: 560;
   font-size: 13.5px;
   cursor: pointer;
   white-space: nowrap;
@@ -1905,7 +1910,7 @@ label.check {
 
 .step-badge {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   padding: 1px 7px;
   border-radius: 999px;
@@ -1936,7 +1941,7 @@ label.check {
 
 .live-min {
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink);
 }
 
@@ -1971,7 +1976,7 @@ label.check {
 
 .impersonation-banner button {
   font: inherit;
-  font-weight: 650;
+  font-weight: 560;
   font-size: 12.5px;
   padding: 6px 12px;
   min-height: 32px;
@@ -1999,7 +2004,7 @@ label.check {
 .side-toggle button {
   font: inherit;
   font-size: 12.5px;
-  font-weight: 650;
+  font-weight: 560;
   padding: 7px 16px;
   min-height: 34px;
   border: 0;
@@ -2027,7 +2032,7 @@ label.check {
 
 .tally-score {
   font-size: 22px;
-  font-weight: 800;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
   margin-right: auto;
 }
@@ -2172,7 +2177,7 @@ label.check {
 
 .drawer .tree-row.lvl1 .item,
 .drawer .tree-row.lvl2 .item {
-  font-weight: 600;
+  font-weight: 550;
 }
 
 .drawer .item-label {
@@ -2229,7 +2234,7 @@ label.check {
   color: var(--muted);
   font: inherit;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 600;
   letter-spacing: 0.6px;
   text-transform: uppercase;
   text-align: left;
@@ -2441,7 +2446,7 @@ label.check {
 
 .chat-react.mine {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .chat-picker .chat-react {
@@ -2580,7 +2585,7 @@ label.check {
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--accent) 12%, color-mix(in srgb, var(--surface) 88%, transparent));
   color: color-mix(in srgb, var(--accent) 70%, var(--ink));
-  font-weight: 700;
+  font-weight: 600;
   pointer-events: none;
 }
 
@@ -2590,7 +2595,7 @@ label.check {
 }
 
 .chat-poll-q {
-  font-weight: 700;
+  font-weight: 600;
   margin: 2px 0;
 }
 
@@ -2641,7 +2646,7 @@ label.check {
 }
 
 .chat-poll-count {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .chat-poll-voters {
@@ -2697,7 +2702,7 @@ label.check {
   color: var(--ink-soft);
   font: inherit;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 560;
   cursor: pointer;
 }
 
@@ -2751,7 +2756,7 @@ label.check {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  font-weight: 650;
+  font-weight: 560;
 }
 
 .fixture-vs {
@@ -2781,7 +2786,7 @@ label.check {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0.4px;
   text-transform: uppercase;
 }
@@ -2802,7 +2807,7 @@ label.check {
 .month-dow {
   text-align: center;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--muted);
 }
 
@@ -2842,7 +2847,7 @@ label.check {
 
 .month-day {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .month-game,
@@ -2908,7 +2913,7 @@ label.check {
 
 .ticket-subject {
   flex: 1 1 60%;
-  font-weight: 650;
+  font-weight: 560;
 }
 
 .ticket-head .sub {
@@ -2925,7 +2930,7 @@ label.check {
   padding: 2px 9px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 600;
   text-transform: capitalize;
   background: var(--surface-2);
   color: var(--ink-soft);
@@ -3018,7 +3023,7 @@ label.check {
   background: var(--surface-2);
   color: var(--muted);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0.4px;
   text-transform: uppercase;
 }
@@ -3030,7 +3035,7 @@ label.check {
   background: color-mix(in srgb, var(--accent, #2f7d4f) 16%, transparent);
   color: var(--ink-soft);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: 0.4px;
   text-transform: uppercase;
 }
@@ -3101,7 +3106,7 @@ label.check {
   gap: 6px;
   color: var(--ink-soft);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 550;
 }
 
 .file-pick.over .fp-text {
@@ -3145,7 +3150,7 @@ label.check {
 }
 
 .month-event {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .snack-list {
@@ -3254,7 +3259,7 @@ label.check {
 
 .integration-status {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink-soft);
 }
 
@@ -3314,14 +3319,14 @@ button.person:hover {
 .person-num {
   flex: 0 0 auto;
   min-width: 2.6em;
-  font-weight: 800;
+  font-weight: 650;
   color: var(--accent);
 }
 
 .person-name {
   flex: 1 1 auto;
   min-width: 0;
-  font-weight: 600;
+  font-weight: 550;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3369,7 +3374,7 @@ button.person:hover {
 }
 
 .eval-overall {
-  font-weight: 800;
+  font-weight: 650;
   color: var(--accent);
 }
 
@@ -3462,7 +3467,7 @@ button.person:hover {
 }
 
 .kb-table th {
-  font-weight: 600;
+  font-weight: 550;
 }
 
 .admin-console .bar .row {
@@ -3539,7 +3544,7 @@ tr.clickable {
   border-radius: var(--radius-sm);
   padding: 8px 12px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 550;
   color: var(--ink-soft);
   margin: 8px 0;
   text-decoration: none;
@@ -3556,7 +3561,7 @@ tr.clickable {
 }
 
 .paid-lock a {
-  font-weight: 600;
+  font-weight: 550;
 }
 
 .event-btn.locked {
@@ -3582,7 +3587,7 @@ tr.clickable {
   color: #fff;
   border-radius: 999px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
   padding: 3px 5px;
 }
@@ -3908,7 +3913,7 @@ tr.clickable:hover {
 
 .big-title {
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 650;
   color: var(--ink);
 }
 
@@ -4075,7 +4080,7 @@ tr.clickable:hover {
   color: var(--ink-soft);
   font: inherit;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 560;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -4171,14 +4176,14 @@ button.rt-head:hover {
   background: color-mix(in srgb, var(--tone) 11%, var(--surface));
   color: color-mix(in srgb, var(--tone) 72%, var(--ink));
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 560;
   white-space: nowrap;
 }
 
 .rt-chip strong {
   font-size: 19px;
   line-height: 1;
-  font-weight: 800;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4244,7 +4249,7 @@ button.rt-head:hover {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-weight: 650;
+  font-weight: 560;
   color: var(--brand);
 }
 
@@ -4274,7 +4279,7 @@ button.rt-head:hover {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 600;
   letter-spacing: 0.4px;
   text-transform: uppercase;
   color: color-mix(in srgb, var(--tone) 72%, var(--ink));
@@ -4282,7 +4287,7 @@ button.rt-head:hover {
 
 .rt-count {
   color: var(--muted);
-  font-weight: 650;
+  font-weight: 560;
 }
 
 .rt-name-chips {
@@ -4408,7 +4413,7 @@ button.rt-head:hover {
 
 .bell-open {
   color: var(--accent);
-  font-weight: 600;
+  font-weight: 550;
 }
 
 @media (max-width: 520px) {
@@ -4481,7 +4486,7 @@ button.rt-head:hover {
   color: var(--accent);
   font: inherit;
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 550;
   cursor: pointer;
   text-decoration: none;
 }
@@ -4630,7 +4635,7 @@ button.rt-head:hover {
   padding-top: 4px;
   border-top: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   font-size: 11.5px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.25;
 }
 
@@ -4653,7 +4658,7 @@ button.rt-head:hover {
 
 .cal-cards .fixture-teams {
   font-size: 17px;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 @media (max-width: 520px) {
@@ -4797,7 +4802,7 @@ button.rt-head:hover {
 }
 
 .bell-from {
-  font-weight: 600;
+  font-weight: 550;
 }
 
 .bell-more {
@@ -4811,7 +4816,7 @@ button.rt-head:hover {
   border: 1px solid var(--amber);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--amber) 10%, var(--surface));
-  font-weight: 600;
+  font-weight: 550;
 }
 
 /* A green button for good news actions, e.g. Resume subscription. */
@@ -4843,7 +4848,7 @@ button.rt-head:hover {
 }
 
 .ref-scoreline .ref-team {
-  font-weight: 700;
+  font-weight: 600;
   font-size: 16px;
 }
 
@@ -4853,7 +4858,7 @@ button.rt-head:hover {
 
 .ref-score {
   font-size: 34px;
-  font-weight: 800;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
   letter-spacing: 1px;
 }
@@ -4868,7 +4873,7 @@ button.rt-head:hover {
 
 .ref-clock-time {
   font-size: 30px;
-  font-weight: 800;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4911,7 +4916,7 @@ button.rt-head:hover {
 
 .ref-min {
   min-width: 34px;
-  font-weight: 700;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4949,7 +4954,7 @@ button.rt-head:hover {
   border-radius: 50%;
   background: var(--brand);
   color: var(--brand-ink);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 13px;
 }
 
@@ -4991,13 +4996,13 @@ button.rt-head:hover {
 .ref-final-row > span {
   padding-bottom: 10px;
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .ref-final-row input {
   width: 100%;
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
   text-align: center;
 }
 
@@ -5050,7 +5055,7 @@ button.rt-head:hover {
   background: var(--accent);
   color: #fff;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.2px;
   text-transform: none;
 }
@@ -5124,7 +5129,7 @@ button.rt-head:hover {
 }
 
 .plan-compare tr.highlight td:first-child {
-  font-weight: 650;
+  font-weight: 560;
 }
 
 /* A plan tapped in the table, shown on top in turquoise so it is not mistaken
@@ -5156,7 +5161,7 @@ button.rt-head:hover {
   background: none;
   padding: 0;
   font: inherit;
-  font-weight: 700;
+  font-weight: 600;
   color: inherit;
   text-decoration: underline dotted;
   text-underline-offset: 3px;
@@ -5245,7 +5250,7 @@ button.rt-head:hover {
     inset 0 2px 3px rgb(255 255 255 / 0.7),
     inset 0 -3px 6px rgb(0 0 0 / 0.28);
   text-shadow: 0 1px 0 rgb(255 255 255 / 0.45);
-  font-weight: 700;
+  font-weight: 600;
   margin: 8px 0;
 }
 /* Brushed-metal grain and the moving glint, kept under the content. */
@@ -5324,7 +5329,7 @@ button.rt-head:hover {
 }
 .pc-num {
   font-size: 38px;
-  font-weight: 800;
+  font-weight: 650;
 }
 .pc-pos {
   font-size: 15px;
@@ -5353,7 +5358,7 @@ button.rt-head:hover {
 .pc-stat strong {
   display: inline-block;
   min-width: 1.6em;
-  font-weight: 800;
+  font-weight: 650;
 }
 .pc-foot {
   text-align: center;
@@ -5380,7 +5385,7 @@ button.rt-head:hover {
 }
 .pc-name {
   font-size: 22px;
-  font-weight: 800;
+  font-weight: 650;
 }
 .pc-watermark {
   position: absolute;
@@ -5388,7 +5393,7 @@ button.rt-head:hover {
   display: grid;
   place-items: center;
   font-family: var(--card-font);
-  font-weight: 900;
+  font-weight: 700;
   font-size: 64px;
   letter-spacing: 0.06em;
   color: var(--card-ink);
@@ -5563,7 +5568,7 @@ button.rt-head:hover {
   text-align: center;
   padding: 1px 6px;
   border-radius: 8px;
-  font-weight: 800;
+  font-weight: 650;
   background: linear-gradient(160deg, #ffe2c2, #d9995f 45%, #f0c093 60%, #8f5428);
   color: #2b1607;
   box-shadow: inset 0 1px 1px rgb(255 255 255 / 0.6), inset 0 -1px 2px rgb(0 0 0 / 0.25);
@@ -5645,7 +5650,7 @@ button.rt-head:hover {
   background: var(--amber);
   color: #1d1300;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 550;
 }
 .test-site-banner .linkish {
   color: inherit;
@@ -5694,7 +5699,7 @@ button.rt-head:hover {
 }
 .comp-status {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 550;
   padding: 2px 8px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--muted) 15%, transparent);
@@ -5798,7 +5803,7 @@ button.rt-head:hover {
   border-top: 1px dashed var(--line);
 }
 .bracket-team.won {
-  font-weight: 700;
+  font-weight: 600;
 }
 .bracket-team.lost {
   opacity: 0.55;
@@ -5858,7 +5863,7 @@ button.rt-head:hover {
   color: var(--stage);
   border-bottom: 3px solid var(--stage);
   padding-bottom: 2px;
-  font-weight: 800;
+  font-weight: 650;
 }
 .bracket-round .bracket-match {
   border-left: 5px solid var(--stage);
@@ -5897,7 +5902,7 @@ button.rt-head:hover {
   border-radius: 999px;
   background: linear-gradient(135deg, #fff6c4, #f1c94a 55%, #c9982a);
   color: #3a2a00;
-  font-weight: 700;
+  font-weight: 600;
   box-shadow: 0 2px 6px rgb(0 0 0 / 0.15);
 }
 .bracket-group {
@@ -5922,13 +5927,13 @@ button.rt-head:hover {
 }
 .bracket-group > .group-title {
   color: var(--grp);
-  font-weight: 800;
+  font-weight: 650;
 }
 .bracket-group .standings thead th {
   background: color-mix(in srgb, var(--grp) 16%, var(--surface));
 }
 .bracket-group .standings tbody tr:first-child td {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* Who sees an event, and how many may go (Fady, 10/17) */
@@ -5939,7 +5944,7 @@ button.rt-head:hover {
   margin: 10px 0;
 }
 .event-audience legend {
-  font-weight: 700;
+  font-weight: 600;
   padding: 0 4px;
 }
 .event-audience-pick {
@@ -5950,7 +5955,7 @@ button.rt-head:hover {
 }
 .aud-label {
   display: block;
-  font-weight: 600;
+  font-weight: 550;
   margin-bottom: 4px;
 }
 .aud-group input[type='search'] {
@@ -5971,7 +5976,7 @@ button.rt-head:hover {
 }
 .event-capacity.full {
   color: var(--danger, #b42318);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* Stats tab: the team's leagues and tournaments, and stats shared as text (Fady, 10/17) */
@@ -5994,7 +5999,7 @@ button.rt-head:hover {
   gap: 8px;
 }
 .team-comp-place {
-  font-weight: 800;
+  font-weight: 650;
   font-size: 18px;
   padding: 1px 10px;
   border-radius: 999px;
@@ -6078,7 +6083,7 @@ button.rt-head:hover {
 }
 .parent-extra summary {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 550;
 }
 .family-card .signup-list {
   margin-bottom: 10px;
@@ -6133,7 +6138,7 @@ button.rt-head:hover {
 }
 .sub-time {
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 600;
   min-width: 44px;
 }
 .sub-what {
@@ -6330,7 +6335,7 @@ button.rt-head:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--green);
   flex: none;
 }
@@ -6376,7 +6381,7 @@ button.rt-head:hover {
   transform: translateX(-50%);
 }
 .guide-help {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* Admin console, Usage: a bar under each page or button showing its share. */
@@ -6397,7 +6402,7 @@ button.rt-head:hover {
   padding: 2px 10px;
   border-radius: 999px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   background: color-mix(in srgb, var(--muted) 18%, transparent);
   color: var(--muted);
 }
@@ -6500,4 +6505,186 @@ button.rt-head:hover {
 }
 .install-banner > span {
   flex: 1;
+}
+
+/* Verse of the day at the bottom of every page (Fady, 10/20). */
+.verse-of-day {
+  margin: 32px auto 12px;
+  max-width: 620px;
+  padding: 14px 16px 0;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  color: var(--muted);
+}
+.verse-of-day .verse-text {
+  margin: 0;
+  font-size: 14px;
+  font-style: italic;
+  line-height: 1.55;
+}
+.verse-of-day .verse-ref {
+  margin: 6px 0 0;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+/* Folded cards (Fady, 10/20): on settings-style pages a card shows only its
+   title until it is tapped (lib/foldCards.ts). */
+section.card[data-fold]:not([data-open]) > :not(:first-child),
+section.card[data-fold]:not([data-open]) > .card-head > :not(h2) {
+  display: none !important;
+}
+section.card[data-fold]:not([data-open]) > h2:first-child,
+section.card[data-fold]:not([data-open]) > .card-head {
+  margin-bottom: 0;
+}
+section.card[data-fold] > h2:first-child,
+section.card[data-fold] > .card-head {
+  cursor: pointer;
+  user-select: none;
+}
+section.card[data-fold] > h2:first-child,
+section.card[data-fold] > .card-head > h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+section.card[data-fold] > h2:first-child::after,
+section.card[data-fold] > .card-head > h2::after {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 0.15s ease;
+}
+section.card[data-fold][data-open] > h2:first-child::after,
+section.card[data-fold][data-open] > .card-head > h2::after {
+  transform: translateY(2px) rotate(-135deg);
+}
+section.card[data-fold] > .card-head > h2 {
+  flex: 1;
+}
+section.card[data-fold]:not([data-open]) {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+section.card[data-fold] > h2:first-child:focus-visible,
+section.card[data-fold] > .card-head > h2:focus-visible {
+  outline: 2px solid var(--brand-hi);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+/* Hairstyle picker (Fady, 10/20): the 48 Lorelei hairstyles as small faces. */
+.hair-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 4px;
+  max-height: 232px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.hair-tile {
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: var(--surface-2, rgba(127, 127, 127, 0.08));
+  cursor: pointer;
+}
+.hair-tile.on {
+  border-color: var(--brand-hi);
+  background: color-mix(in srgb, var(--brand-hi) 12%, transparent);
+}
+.hair-tile .player-avatar {
+  display: block;
+}
+/* Help answers (Fady, 10/20): searchable questions above the support form. */
+.help-answers input[type='search'] {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.faq {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.faq li {
+  border-bottom: 1px solid var(--line);
+}
+.faq-q {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 2px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.faq-q span:first-child {
+  flex: 1;
+}
+.faq-a {
+  margin: 0 2px 12px;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+.roster-help .row {
+  flex-wrap: wrap;
+}
+/* Parent or own-team coach? for someone with no team yet (Shadi, 10/20). */
+.onboard-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+.onboard-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.onboard-choice:hover,
+.onboard-choice:focus-visible {
+  border-color: var(--accent);
+}
+.onboard-choice > span[aria-hidden] {
+  font-size: 28px;
+  line-height: 1;
+}
+.onboard-back {
+  margin: 4px 2px 10px;
+}
+
+/* The free trial inside the Your plan card. */
+.trial-in-plan {
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+#your-plan #plans {
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+/* Friendly one-liners at the top of a card (Shadi, 10/20). */
+.note.tagline {
+  margin-top: 0;
+  font-style: italic;
 }

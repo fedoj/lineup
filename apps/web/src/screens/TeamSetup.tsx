@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  defaultAvatarFor,
   FORMATS,
   FORMAT_IDS,
   formationNames,
@@ -27,6 +28,10 @@ interface Props {
   onLogo?: (version: string | null) => void;
   onPlayers: (p: Player[]) => void;
   onTeam: (t: Team) => void;
+  /** The team is in a region or organization: how its players arrive, and the way to its leagues. */
+  joinVia?: { name: string; onOpenLeagues: () => void } | null;
+  /** A coach's own team: open the Games page to start a league or tournament. */
+  onCreateLeague?: () => void;
 }
 
 export default function TeamSetup({
@@ -38,6 +43,8 @@ export default function TeamSetup({
   onLogo,
   onPlayers,
   onTeam,
+  joinVia,
+  onCreateLeague,
 }: Props) {
   const [draft, setDraft] = useState(players);
   const [error, setError] = useState<string | null>(null);
@@ -149,6 +156,8 @@ export default function TeamSetup({
 
       {canInvite && <InviteMember teamId={team.id} players={players.filter((p) => p.id && p.active)} />}
 
+      <RosterHelp team={team} canEdit={canEdit} joinVia={joinVia} onCreateLeague={onCreateLeague} />
+
       <RosterCard
         team={team}
         draft={draft}
@@ -160,6 +169,67 @@ export default function TeamSetup({
         onSave={save}
       />
     </>
+  );
+}
+
+/**
+ * How players get onto this team (Fady, 10/20). In a region or organization
+ * its staff approve and place players as families sign up for leagues and
+ * tournaments. A coach's own team can do the same with a league or tournament
+ * of its own, or skip it and type the roster in.
+ */
+function RosterHelp({
+  team,
+  canEdit,
+  joinVia,
+  onCreateLeague,
+}: {
+  team: Team;
+  canEdit: boolean;
+  joinVia?: { name: string; onOpenLeagues: () => void } | null;
+  onCreateLeague?: () => void;
+}) {
+  const key = `lineup.rosterHelpClosed.${team.id}`;
+  const [closed, setClosed] = useState(() => Boolean(localStorage.getItem(key)));
+  if (joinVia) {
+    return (
+      <section className="card roster-help" data-fold-open>
+        <h2>How players join</h2>
+        <p className="note">
+          Players are approved and placed on this team by {joinVia.name} staff as families sign up for its leagues and
+          tournaments. Your team’s leagues and tournaments, and their sign-up links when you can share them, are on the Games page.
+        </p>
+        <button type="button" className="btn btn-sm" onClick={joinVia.onOpenLeagues}>
+          ⚽ Leagues &amp; tournaments
+        </button>
+      </section>
+    );
+  }
+  if (!canEdit || !onCreateLeague || closed) return null;
+  return (
+    <section className="card roster-help" data-fold-open>
+      <h2>Let families sign up themselves</h2>
+      <p className="note">
+        Skip the typing ✨ Create a league or tournament, add this team to it and share its sign-up link. Parents
+        register their own children, and you just place them on the team.
+      </p>
+      <div className="row">
+        <button type="button" className="btn btn-sm" onClick={onCreateLeague}>
+          ⚽ Create a league or tournament
+        </button>
+        <button
+          type="button"
+          className="btn ghost btn-sm"
+          onClick={() => {
+            localStorage.setItem(key, '1');
+            setClosed(true);
+          }}
+        >
+          No, I’ll add the roster myself
+        </button>
+      </div>
+      <p className="sub">Choose “No” if parents won’t use Lineup for chat, the calendar or attendance.</p>
+    </section>
   );
 }
 
@@ -252,7 +322,7 @@ function RosterCard({
   const activeCount = draft.filter((p) => p.active).length;
 
   return (
-    <section className="card" data-tour="roster">
+    <section className="card" data-tour="roster" data-fold-open>
       <div className="card-head">
         <h2>Roster</h2>
       </div>
@@ -286,7 +356,7 @@ function RosterCard({
                       aria-expanded={isOpen}
                       onClick={() => toggle(k)}
                     >
-                      <PlayerAvatar avatar={ev?.avatar} size={34} title={`${p.name.trim() || 'Player'} avatar`} />
+                      <PlayerAvatar avatar={ev?.avatar ?? defaultAvatarFor(p.gender)} size={34} title={`${p.name.trim() || 'Player'} avatar`} />
                       <span className="person-num">{p.number.trim() ? `#${p.number.trim()}` : '#–'}</span>
                       <span className="person-name">{p.name.trim() || 'New player'}</span>
                       {ev?.card?.rating != null && <Rating ev={ev} />}
@@ -738,6 +808,7 @@ export function NewTeam({
   return (
     <section className="card">
       <h2>New team</h2>
+      <p className="note tagline">Let's get your squad on the field ⚽ It takes about a minute.</p>
       {error && <p className="danger-text">{error}</p>}
 
       <label>

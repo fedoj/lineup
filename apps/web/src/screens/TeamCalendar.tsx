@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import FriendlyRequests from '../components/FriendlyRequests';
 import type { IcsEvent, Player } from '@lineup/shared';
 import {
   api,
@@ -79,11 +80,15 @@ export default function TeamCalendar({
   teamId,
   onOpenGame,
   focus = null,
+  onOpenGames,
 }: {
   teamId: string;
   onOpenGame: (teamId: string, gameId: string) => void;
   focus?: string | null;
+  /** The Games tab for this team: its own (standalone) or its region's or organization's. */
+  onOpenGames?: () => void;
 }) {
+  const [requestsVersion, setRequestsVersion] = useState(0);
   // What this visit already loaded shows at once; load() then refreshes it.
   const [cal, setCal] = useState<Cal | null>(() => peek<Cal>(apiPath.calendar('team', teamId)) ?? null);
   const [life, setLife] = useState<TeamLife | null>(() => peek<TeamLife>(apiPath.teamLife(teamId)) ?? null);
@@ -201,13 +206,13 @@ export default function TeamCalendar({
     };
   }, [teamId, life?.canEditSnacks]);
 
-  async function run(fn: () => Promise<unknown>, done: string) {
+  async function run(fn: () => Promise<unknown>, done: string | (() => string)) {
     setBusy(true);
     setError(null);
     setMsg(null);
     try {
       await fn();
-      setMsg(done);
+      setMsg(typeof done === 'function' ? done() : done);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong');
@@ -388,11 +393,15 @@ export default function TeamCalendar({
   // "＋ Game" asks: a friendly (added here), or a league or tournament game,
   // which is scheduled on the Games page (Fady, 10/19).
   const createButtons: Array<[Exclude<Creating, null>, string]> = [];
-  if (cal.canAddFriendly) createButtons.push(['game', 'Match']);
+  if (cal.canAddFriendly) createButtons.push(['game', 'Game']);
   if (practices?.canSchedule) createButtons.push(['practice', 'Practice']);
   if (life?.canEditEvents) createButtons.push(['event', 'Team event']);
   const schedulesGames = Boolean(cal.canAddGame || cal.canSchedule);
-  const openGames = () => window.dispatchEvent(new CustomEvent('lineup:open', { detail: '/competitions' }));
+  const openGames = () =>
+    onOpenGames ? onOpenGames() : window.dispatchEvent(new CustomEvent('lineup:open', { detail: '/competitions' }));
+  // A team in an organization or region only requests friendlies here; its
+  // league and tournament games come from the top (Shadi, 10/20).
+  const leagueTeam = Boolean(cal.canAddFriendly && !cal.canAddGame);
 
   return (
     <>
@@ -404,6 +413,10 @@ export default function TeamCalendar({
       {error && <section className="card err">{error}</section>}
 
       {guests && <BorrowRequests data={guests} onChanged={loadGuests} />}
+
+      {cal.canAddFriendly && !cal.canAddGame && (
+        <FriendlyRequests key={`fr-${teamId}-${requestsVersion}`} query={{ teamId }} onChanged={() => void load()} />
+      )}
 
       <section className="card" id="cal-main">
         <div className="card-head">
@@ -428,7 +441,7 @@ export default function TeamCalendar({
                   type="button"
                   className={`btn btn-sm${on ? '' : ' ghost'}`}
                   aria-pressed={on}
-                  onClick={() => setCreating(on ? null : id)}
+                  onClick={() => setCreating(on ? null : id === 'game' && leagueTeam ? 'friendly' : id)}
                 >
                   ＋ {label}
                 </button>
@@ -440,7 +453,7 @@ export default function TeamCalendar({
           <p className="note">
             Games are scheduled inside a league or tournament and show here automatically.{' '}
             <button type="button" className="linkish" onClick={openGames}>
-              Games &amp; matches
+              Games
             </button>
           </p>
         )}
@@ -450,7 +463,7 @@ export default function TeamCalendar({
             {creating === 'game' && (
               <div className="card">
                 <div className="card-head">
-                  <h2>Add a match</h2>
+                  <h2>Add a game</h2>
                   <button type="button" className="btn ghost btn-sm" onClick={() => setCreating(null)}>
                     Close
                   </button>
@@ -465,8 +478,8 @@ export default function TeamCalendar({
                   </button>
                 </div>
                 <p className="note">
-                  League and tournament matches are scheduled on the Games &amp; matches page, inside the league or tournament, and
-                  show here automatically.
+                  League and tournament matches are scheduled on your team’s Games tab, inside the league or
+                  tournament, and show here automatically.
                 </p>
               </div>
             )}
@@ -479,6 +492,7 @@ export default function TeamCalendar({
                 run={async (fn, done) => {
                   await run(fn, done);
                   setShown((prev) => new Set([...prev, 'games']));
+                  setRequestsVersion((v) => v + 1);
                 }}
                 open
                 onClose={() => setCreating(null)}

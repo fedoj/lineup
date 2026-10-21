@@ -3,12 +3,14 @@ import { formatPlanPrice, TIER_ORDER, type Feature, type TierId } from '@lineup/
 import { api, type MeResponse } from '../lib/api';
 import Impersonation from '../components/Impersonation';
 import { FamilyCard, JoinRegion } from '../components/RegionJoin';
-import { TrialCard } from '../components/Trial';
+import { TrialCard, trialFor } from '../components/Trial';
+import type { TrialTier } from '@lineup/shared';
 import TwoStepCard from '../components/TwoStep';
 import InstallCard from '../components/InstallCard';
 import { ADS_ENABLED } from '../lib/ads';
 import { PLAN_HIGHLIGHTS, type PlanFor } from '../lib/planFor';
 import { buysOnWebsite, FROM_APP_KEY, openWebsite, storeName, websiteHost } from '../lib/purchases';
+import { revealInFold } from '../lib/foldCards';
 
 /** Cheapest to most complete, matching the plan catalog. */
 const PLAN_COLUMNS = TIER_ORDER;
@@ -43,6 +45,8 @@ interface Props {
   onRefresh: () => void;
   /** An organization or region trial was started; open it. */
   onTrialStarted?: (scope: { orgId: string | null; regionId: string | null }) => void;
+  /** A parent is starting to coach a team of their own: open the new team form. */
+  onStartCoaching?: () => void;
 }
 
 /** Family plans join teams by invite, so team and game limits mean nothing to them. */
@@ -59,7 +63,15 @@ interface PlanRow {
 }
 
 /** Plan, subscription controls and data rights. */
-export default function Account({ me, teamId, familyOnly = false, recommended, onRefresh, onTrialStarted }: Props) {
+export default function Account({
+  me,
+  teamId,
+  familyOnly = false,
+  recommended,
+  onRefresh,
+  onTrialStarted,
+  onStartCoaching,
+}: Props) {
   const [msg, setMsg] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<null | 'deactivate' | 'delete'>(null);
   const [closing, setClosing] = useState(false);
@@ -212,6 +224,25 @@ export default function Account({ me, teamId, familyOnly = false, recommended, o
     ...PLAN_FEATURES.filter(([f]) => !highlights.includes(f)).map(([f, label]) => featureRow(f, label, false)),
   ];
 
+  // A plan's "Start free trial" picks that trial in the Free trial part above (Fady, 10/20).
+  const [trialPick, setTrialPick] = useState<{ tier: TrialTier; n: number } | null>(null);
+  function trialButton(id: TierId, big: boolean) {
+    const t = familyOnly ? null : trialFor(me.trial, me.paywallEnabled, id);
+    if (!t) return null;
+    return (
+      <button
+        type="button"
+        className={big ? 'btn ghost' : 'btn ghost small'}
+        onClick={() => {
+          setTrialPick((p) => ({ tier: t, n: (p?.n ?? 0) + 1 }));
+          window.setTimeout(() => document.getElementById('trial')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
+        }}
+      >
+        {big ? 'Start free trial' : 'Free trial'}
+      </button>
+    );
+  }
+
   function subscribeButton(id: TierId, big: boolean) {
     if (me.plan.tiers[id].priceCents <= 0) return null;
     if (webOnly) {
@@ -253,11 +284,16 @@ export default function Account({ me, teamId, familyOnly = false, recommended, o
   // "See plans" links land here; the section renders after the page loads,
   // so the browser's own anchor jump has nothing to scroll to yet.
   useEffect(() => {
+    const to = (id: string) => {
+      const card = document.getElementById(id);
+      revealInFold(card);
+      card?.scrollIntoView({ behavior: 'smooth' });
+    };
     if (location.hash === '#plans' || location.hash === '#trial') {
-      document.getElementById(location.hash.slice(1))?.scrollIntoView({ behavior: 'smooth' });
+      to(location.hash.slice(1));
     } else if (new URLSearchParams(location.search).get('to') === 'plans') {
       // From the app's Subscribe button (the hash does not survive sign-in).
-      document.getElementById('plans')?.scrollIntoView({ behavior: 'smooth' });
+      to('plans');
     }
   }, []);
 
@@ -309,18 +345,36 @@ export default function Account({ me, teamId, familyOnly = false, recommended, o
 
       <FamilyCard />
 
-      {!familyOnly && (
-        <TrialCard
-          status={me.trial}
-          paywall={me.paywallEnabled}
-          onStarted={(tier, scope) => {
-            if (tier !== 'coach' && onTrialStarted) onTrialStarted(scope);
-            else onRefresh();
-          }}
-        />
+      {familyOnly && onStartCoaching && (
+        <section className="card" id="start-coaching">
+          <h2>Coaching a team of your own?</h2>
+          <p className="note">
+            Parents who start coaching can set up their own team: a roster, lineups, a calendar and a chat,
+            all separate from your child's league team. The Coach plan covers it, with a free trial when one is
+            available.
+          </p>
+          <div className="row">
+            <button type="button" className="btn" onClick={onStartCoaching}>
+              I'm starting to coach my own team
+            </button>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                setPicked('coach');
+                const el = document.getElementById('plans');
+                revealInFold(el);
+                el?.scrollIntoView({ behavior: 'smooth' });
+              }}
+            >
+              See the Coach plan
+            </button>
+          </div>
+        </section>
       )}
 
-      <section className="card">
+      {/* Your plan, free trial and plans in one card (Fady, 10/20). */}
+      <section className="card" id="your-plan">
         <h2>Your plan</h2>
         <dl className="kv">
           <dt>Signed in</dt>
@@ -386,10 +440,22 @@ export default function Account({ me, teamId, familyOnly = false, recommended, o
         {!me.paywallEnabled && (
           <p className="note">Everything is free while we are in early access.</p>
         )}
-      </section>
 
-      <section className="card" id="plans">
-        <h2>Plans</h2>
+        {!familyOnly && (
+          <TrialCard
+            embedded
+            requested={trialPick}
+            status={me.trial}
+            paywall={me.paywallEnabled}
+            onStarted={(tier, scope) => {
+              if (tier !== 'coach' && onTrialStarted) onTrialStarted(scope);
+              else onRefresh();
+            }}
+          />
+        )}
+
+        <div id="plans">
+        <h3 className="group-title">Plans</h3>
         {webOnly && billing?.checkout && (
           <p className="note">
             Plans aren’t sold through {storeName()}. Subscribe on our website, {websiteHost()}: sign in there with this
@@ -429,6 +495,7 @@ export default function Account({ me, teamId, familyOnly = false, recommended, o
             )}
             <div className="row">
               {shownPlan === me.tier ? <span className="sub">Your current plan</span> : subscribeButton(shownPlan, true)}
+              {shownPlan !== me.tier && trialButton(shownPlan, true)}
               {isPick && (
                 <button type="button" className="btn ghost btn-sm" onClick={() => setPicked(null)}>
                   {reco ? `‹ Back to ${me.plan.tiers[reco].name}, best for you` : 'Close'}
@@ -472,6 +539,7 @@ export default function Account({ me, teamId, familyOnly = false, recommended, o
                     <span className="sub">{formatPlanPrice(me.plan, me.plan.tiers[id].priceCents)}</span>
                     <div className="plan-head-action">
                       {id === me.tier ? <span className="sub">Current</span> : subscribeButton(id, false)}
+                      {id !== me.tier && trialButton(id, false)}
                     </div>
                   </th>
                 ))}
@@ -510,6 +578,7 @@ export default function Account({ me, teamId, familyOnly = false, recommended, o
             : 'Online checkout is coming soon.'}{' '}
           See <a href="/help/roles" target="_blank" rel="noopener noreferrer">Who does what</a>.
         </p>
+        </div>
       </section>
 
       <InstallCard />

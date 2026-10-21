@@ -36,8 +36,9 @@ async function canSeeRegion(access: AccessContext, userId: string, r: RegionRef)
   );
 }
 
+// Staff and the scheduler role (Fady, 10/20) keep the field maps.
 const canManage = (access: AccessContext, r: RegionRef) =>
-  canOnScope(access, { orgId: r.org_id, regionId: r.id }, 'team.create').allowed;
+  canOnScope(access, { orgId: r.org_id, regionId: r.id }, 'field.manage').allowed;
 
 async function listFields(regionIds: string[]) {
   if (!regionIds.length) return [];

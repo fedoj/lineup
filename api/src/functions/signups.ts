@@ -714,8 +714,31 @@ export async function coachSignupsHandler(req: HttpRequest, ctx: InvocationConte
       ? comp.owner_user_id === user.id || Boolean(access.isPlatformAdmin)
       : Boolean(comp.org_id) &&
         canOnScope(access, { orgId: comp.org_id!, regionId: comp.region_id }, 'member.invite').allowed;
-    if (!manages) return FORBIDDEN;
+    // Coaches of a team in it may see and share the sign-up link, but not
+    // approve or place anyone (Fady, 10/20).
+    let sharesOnly = false;
+    if (!manages && req.method === 'GET') {
+      const coached = new Set(
+        access.memberships.filter((m) => m.teamId && (m.role === 'coach' || m.role === 'assistant')).map((m) => m.teamId!),
+      );
+      if (coached.size) {
+        const inIt = await queryOne<{ n: number }>(
+          'SELECT 1 AS n FROM competition_team WHERE competition_id = $1 AND team_id = ANY($2::uuid[]) LIMIT 1',
+          [comp.id, [...coached]],
+        );
+        sharesOnly = Boolean(inIt);
+      }
+    }
+    if (!manages && !sharesOnly) return FORBIDDEN;
     const who = comp.name;
+
+    if (req.method === 'GET' && sharesOnly) {
+      const code = await ensureCompetitionCode(comp);
+      return {
+        status: 200,
+        jsonBody: { competition: { ...compOut({ ...comp, join_code: code }), teamIds: [], waiting: 0 }, signups: [], teams: [], shareOnly: true },
+      };
+    }
 
     if (req.method === 'GET') {
       const code = await ensureCompetitionCode(comp);

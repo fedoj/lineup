@@ -41,7 +41,11 @@ export interface MenuDrawerProps {
   onClose: () => void;
   /** Bottom-of-menu items: setup, account, support, admin, sign out. */
   children: React.ReactNode;
-  /** Shown at the top, under the favorites: Games (Fady, 10/18; renamed 10/19). */
+  /**
+   * Games, the coach's own leagues and tournaments (Fady, 10/18). Since 10/20
+   * the first item under My Own Teams: organizations and regions have their
+   * own Games tab, so it only matters for a coach's own teams.
+   */
   top?: React.ReactNode;
   /** Optional quiet "new team" action under the tree. */
   newTeam?: React.ReactNode;
@@ -192,13 +196,6 @@ export default function MenuDrawer({
           </>
         )}
 
-        {top && (
-          <>
-            {top}
-            <div className="divider" />
-          </>
-        )}
-
         {orgs.map((o) => {
           const orgFolded = collapsed.includes(`org:${o.id}`);
           const directTeams = active.filter((t) => t.orgId === o.id && !t.regionId);
@@ -272,12 +269,14 @@ export default function MenuDrawer({
               aria-expanded={!collapsed.includes('section:loose')}
               onClick={() => toggleCollapsed('section:loose')}
             >
-              {collapsed.includes('section:loose') ? '▸' : '▾'} {orgs.length || regions.length ? 'Independent teams' : 'My teams'}
+              {collapsed.includes('section:loose') ? '▸' : '▾'} My Own Teams
             </button>
-            {!collapsed.includes('section:loose') &&
-              looseTeams.map((t) =>
-                renderNode({ kind: 'team', id: t.id, name: t.name, logo: t.logo, level: 0 }),
-              )}
+            {!collapsed.includes('section:loose') && (
+              <>
+                {top}
+                {looseTeams.map((t) => renderNode({ kind: 'team', id: t.id, name: t.name, logo: t.logo, level: 0 }))}
+              </>
+            )}
           </>
         )}
 

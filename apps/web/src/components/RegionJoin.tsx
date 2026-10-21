@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, type CoachSignups, type Family, type JoinRegionInfo, type MySignups, type ParentLabel, type RegionSignups, type Signup } from '../lib/api';
+import { api, ApiError, type CoachSignups, type Family, type JoinRegionInfo, type MySignups, type ParentLabel, type RegionSignups, type Signup } from '../lib/api';
 import { PENDING_JOIN_KEY } from '../lib/pendingKeys';
 
 export const PARENT_LABELS: Array<[ParentLabel, string]> = [
@@ -400,7 +400,7 @@ export function RegionSignupsPanel({ regionId, onChanged }: { regionId: string; 
         <p className="note">
           Each league or tournament has its own sign-up link. Families open it during its registration dates, create
           their account and sign their children up; you place each child on one of its teams. After registration
-          closes, the link says when it closed. To add a league or tournament, use the Games &amp; matches tab.
+          closes, the link says when it closed. To add a league or tournament, use the Games tab.
         </p>
         {error && <p className="danger-text">{error}</p>}
         {data.competitions.length === 0 ? (
@@ -790,6 +790,7 @@ export function CoachSignupsPanel({ competitionId, onChanged }: { competitionId:
   const [editing, setEditing] = useState(false);
   const [opens, setOpens] = useState('');
   const [closes, setCloses] = useState('');
+  const [hidden, setHidden] = useState(false);
 
   const load = useCallback(() => {
     api
@@ -798,7 +799,11 @@ export function CoachSignupsPanel({ competitionId, onChanged }: { competitionId:
         setData(d);
         setError(null);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Could not load sign-ups'));
+      .catch((e) => {
+        // Not theirs to see (not staff, nor a coach of one of its teams): nothing to show.
+        if (e instanceof ApiError && e.status === 403) setHidden(true);
+        else setError(e instanceof Error ? e.message : 'Could not load sign-ups');
+      });
   }, [competitionId]);
   useEffect(load, [load]);
 
@@ -816,8 +821,10 @@ export function CoachSignupsPanel({ competitionId, onChanged }: { competitionId:
     }
   }
 
+  if (hidden) return null;
   if (!data) return error ? <section className="card err">{error}</section> : null;
   const c = data.competition;
+  const shareOnly = Boolean(data.shareOnly);
   const link = `${location.origin}/join/${encodeURIComponent(c.code)}`;
   const day = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
   const waiting = data.signups.filter((s) => s.status === 'pending' || s.status === 'approved');
@@ -827,11 +834,18 @@ export function CoachSignupsPanel({ competitionId, onChanged }: { competitionId:
   return (
     <section className="card" data-tour="coach-signups">
       <h2>Sign-ups</h2>
-      <p className="note">
-        Share this link with families instead of typing the roster. Parents sign in, add their children and sign up;
-        you place each child on one of this {c.kind === 'tournament' ? 'tournament' : 'league'}'s teams. You only add
-        numbers and positions.
-      </p>
+      {shareOnly ? (
+        <p className="note">
+          Share this link with your team’s families. Parents sign in, add their children and sign up; the league’s staff
+          approve them and place them on teams.
+        </p>
+      ) : (
+        <p className="note">
+          Share this link with families instead of typing the roster. Parents sign in, add their children and sign up;
+          you place each child on one of this {c.kind === 'tournament' ? 'tournament' : 'league'}'s teams. You only add
+          numbers and positions.
+        </p>
+      )}
       {error && <p className="danger-text">{error}</p>}
       <div className="signup-comp-head">
         <span className="sub">
@@ -862,7 +876,7 @@ export function CoachSignupsPanel({ competitionId, onChanged }: { competitionId:
         >
           WhatsApp
         </a>
-        {!editing && (
+        {!editing && !shareOnly && (
           <button
             type="button"
             className="btn ghost btn-sm"
@@ -905,6 +919,8 @@ export function CoachSignupsPanel({ competitionId, onChanged }: { competitionId:
         </div>
       )}
 
+      {!shareOnly && (
+        <>
       <h3 className="group-title">
         Players to place <span className="count">{waiting.length}</span>
       </h3>
@@ -976,6 +992,8 @@ export function CoachSignupsPanel({ competitionId, onChanged }: { competitionId:
         <p className="note">
           {placed.length} placed: {placed.map((s) => `${s.childName} (${s.teamName ?? 'team'})`).join(', ')}.
         </p>
+      )}
+        </>
       )}
     </section>
   );

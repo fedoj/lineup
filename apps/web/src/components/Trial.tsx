@@ -59,8 +59,15 @@ export function TrialCard({
   status,
   paywall,
   onStarted,
+  embedded = false,
+  requested = null,
 }: {
   status: TrialStatus | null | undefined;
+  /** Inside the Your plan card (Fady, 10/20) rather than a card of its own. */
+  embedded?: boolean;
+  /** A plan's "Start free trial" button picked this trial; 
+ repeats a pick. */
+  requested?: { tier: TrialTier; n: number } | null;
   /** With the paywall off everyone already has every Coach feature. */
   paywall: boolean;
   onStarted: (tier: TrialTier, scope: { orgId: string | null; regionId: string | null }) => void;
@@ -78,6 +85,10 @@ export function TrialCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (requested) setTier(requested.tier);
+  }, [requested]);
 
   useEffect(() => {
     try {
@@ -116,9 +127,10 @@ export function TrialCard({
     }
   }
 
+  const Wrap = embedded ? 'div' : 'section';
   return (
-    <section className="card" id="trial">
-      <h2>Free trial</h2>
+    <Wrap className={embedded ? 'trial-in-plan' : 'card'} id="trial">
+      {embedded ? <h3 className="group-title">Free trial</h3> : <h2>Free trial</h2>}
       {done && <p role="status">{done}</p>}
       {status.scope && <TrialLine t={status.scope} />}
       {status.coach && <TrialLine t={status.coach} />}
@@ -170,8 +182,15 @@ export function TrialCard({
         </>
       )}
       {offered.length === 0 && status.blockedReason && <p className="note">{status.blockedReason}</p>}
-    </section>
+    </Wrap>
   );
+}
+
+/** The trial a plan's "Start free trial" button starts, when there is one. */
+export function trialFor(status: TrialStatus | null | undefined, paywall: boolean, tier: string): TrialTier | null {
+  if (!status || !isTrialTier(tier)) return null;
+  if (!status.canStart[tier] || (tier === 'coach' && !paywall)) return null;
+  return tier;
 }
 
 /**

@@ -6,56 +6,59 @@ import { Logo } from '../components/Logo';
 import { NewTeam } from './TeamSetup';
 
 /**
- * How players, families and staff come into an organization or region.
- * Shown on the Teams tab and in Settings so staff see the two ways in.
+ * How players, families and staff come into an organization or region. On
+ * the Teams tab only (Fady, 10/20), with a way straight to the leagues and
+ * tournaments, where each one's sign-up link is.
  */
 export function JoinHelp({
   kind,
   onOpenSettings,
   openLabel = 'Open Settings',
+  onOpenGames,
 }: {
   kind: 'org' | 'region';
   onOpenSettings?: () => void;
   openLabel?: string;
+  onOpenGames?: () => void;
 }) {
   return (
     <section className="card join-help">
-      <h2>How players and families join</h2>
+      <h2>How families and staff join</h2>
       <ol className="join-options">
         <li>
-          <strong>Option 1: Share the sign-up link (families)</strong>
+          <strong>Families: the league or tournament sign-up link</strong>
           <p className="note">
-            {kind === 'region'
-              ? 'Each of the region’s leagues and tournaments has its own sign-up link, found in the Sign-ups tab, open during its registration dates.'
-              : 'Each region’s leagues and tournaments have their own sign-up links, in that region’s Sign-ups tab.'}{' '}
-            Parents open it, create their account and register their children. You approve each child and
-            place them on one of that league’s teams, and the parent is linked to their child automatically.
-            Families who signed up show under People in this region.
+            Every league and tournament has its own sign-up link, open during its registration dates. Share it, and
+            parents create their account and register their children themselves. You approve each child and place
+            them on a team; the parent is linked to their child automatically.
           </p>
+          {onOpenGames && (
+            <button type="button" className="btn btn-sm" onClick={onOpenGames}>
+              ⚽ Go to leagues &amp; tournaments
+            </button>
+          )}
         </li>
         <li>
-          <strong>Option 2: Invite by email (staff and specific people)</strong>
+          <strong>Staff: invite by email</strong>
           <p className="note">
-            {kind === 'org' ? 'In Settings' : 'At the bottom of the Sign-ups tab'}, under Invite members, invite coaches, assistant coaches, team parents and{' '}
-            {kind === 'org' ? 'organization or region admins and directors' : 'region admins and directors'} by
-            email. They get a link to accept. To add a parent for a child who is already on a team, invite
-            them from that team’s Team &amp; roster with their child picked.
+            {kind === 'org' ? 'In Settings' : 'At the bottom of Sign-ups'}, under Invite members, invite coaches,
+            assistant coaches, team parents and {kind === 'org' ? 'organization or region admins' : 'region admins'}.
+            They get a link to accept.
           </p>
+          {onOpenSettings && (
+            <button type="button" className="btn ghost btn-sm" onClick={onOpenSettings}>
+              {openLabel}
+            </button>
+          )}
         </li>
       </ol>
       <p className="note">
-        Coaches on teams in {kind === 'org' ? 'the organization' : 'the region'} don’t add players or invite
-        people: {kind === 'org' ? 'organization and region' : 'region'} staff do.
+        Coaches on {kind === 'org' ? 'the organization’s' : 'the region’s'} teams don’t add players: players are approved
+        and placed on teams by {kind === 'org' ? 'organization and region' : 'region'} staff as they sign up.
       </p>
-      {onOpenSettings && (
-        <button type="button" className="btn ghost btn-sm" onClick={onOpenSettings}>
-          {openLabel}
-        </button>
-      )}
     </section>
   );
 }
-
 /**
  * Teams tab for an organization or region: every team in it, opened with a
  * tap, and a new team created straight into a region by its staff.
@@ -67,6 +70,7 @@ export default function ScopeTeams({
   onOpenTeam,
   onOpenSettings,
   openLabel,
+  onOpenGames,
   onChanged,
 }: {
   kind: 'org' | 'region';
@@ -74,8 +78,10 @@ export default function ScopeTeams({
   hierarchy: Hierarchy | null;
   onOpenTeam: (teamId: string) => void;
   onOpenSettings?: () => void;
-  /** The button under "How players and families join". */
+  /** The button under "How families and staff join". */
   openLabel?: string;
+  /** Open the leagues and tournaments (the Games tab). */
+  onOpenGames?: () => void;
   onChanged: () => void;
 }) {
   const [adding, setAdding] = useState(false);
@@ -170,7 +176,7 @@ export default function ScopeTeams({
         />
       )}
 
-      <JoinHelp kind={kind} onOpenSettings={onOpenSettings} openLabel={openLabel} />
+      <JoinHelp kind={kind} onOpenSettings={onOpenSettings} openLabel={openLabel} onOpenGames={onOpenGames} />
     </>
   );
 }

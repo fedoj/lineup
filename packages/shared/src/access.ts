@@ -21,6 +21,12 @@ export type Role =
   | 'org_admin'
   | 'director'
   | 'region_admin'
+  /**
+   * Organization or region scheduler (Fady, 10/20): schedules and edits the
+   * games of its existing leagues and tournaments, and manages field maps.
+   * Nothing else: no leagues created, players placed, people invited or rosters.
+   */
+  | 'scheduler'
   | 'coach'
   | 'assistant'
   /** Team mom or manager: events, snack schedule and calendar, never match day. */
@@ -38,6 +44,7 @@ export const ROLE_RANK: Record<Role, number> = {
   director: 70,
   org_admin: 60,
   region_admin: 50,
+  scheduler: 45,
   coach: 40,
   assistant: 30,
   team_parent: 25,
@@ -47,7 +54,7 @@ export const ROLE_RANK: Record<Role, number> = {
 };
 
 /** Roles that only exist on a paid plan. Free teams can never mint these. */
-export const PAID_ONLY_ROLES: readonly Role[] = ['org_admin', 'director', 'region_admin'];
+export const PAID_ONLY_ROLES: readonly Role[] = ['org_admin', 'director', 'region_admin', 'scheduler'];
 
 /** Family and spectator roles: they join teams by invite and never run one. */
 export const FAMILY_ROLES: readonly Role[] = ['team_parent', 'parent', 'player', 'viewer'];
@@ -111,6 +118,10 @@ export type Action =
   | 'game.edit'
   | 'game.delete'
   | 'game.view'
+  /** Schedule and edit games in an existing league or tournament (no creating or deleting them). */
+  | 'fixture.schedule'
+  /** Add, change and remove a region's fields and their maps. */
+  | 'field.manage'
   | 'lineup.edit'
   | 'timer.run'
   // records
@@ -148,7 +159,7 @@ const ROLE_GRANTS: Record<Role, readonly Action[]> = {
     'member.invite', 'member.manage',
     'team.create', 'team.edit', 'team.delete', 'team.view',
     'roster.edit', 'roster.add', 'roster.view',
-    'game.create', 'game.edit', 'game.delete', 'game.view',
+    'game.create', 'game.edit', 'game.delete', 'game.view', 'fixture.schedule', 'field.manage',
     'lineup.edit', 'timer.run',
     'attendance.edit', 'attendance.view',
     'stats.edit', 'stats.view', 'analytics.view',
@@ -163,7 +174,7 @@ const ROLE_GRANTS: Record<Role, readonly Action[]> = {
     'region.manage', 'division.manage', 'member.invite', 'member.manage',
     'team.create', 'team.edit', 'team.delete', 'team.view',
     'roster.edit', 'roster.add', 'roster.view',
-    'game.create', 'game.edit', 'game.delete', 'game.view',
+    'game.create', 'game.edit', 'game.delete', 'game.view', 'fixture.schedule', 'field.manage',
     'lineup.edit', 'timer.run',
     'attendance.edit', 'attendance.view',
     'stats.edit', 'stats.view', 'analytics.view',
@@ -175,7 +186,7 @@ const ROLE_GRANTS: Record<Role, readonly Action[]> = {
     'division.manage', 'member.invite',
     'team.create', 'team.edit', 'team.view',
     'roster.edit', 'roster.add', 'roster.view',
-    'game.create', 'game.edit', 'game.view',
+    'game.create', 'game.edit', 'game.view', 'fixture.schedule', 'field.manage',
     'lineup.edit', 'timer.run',
     'attendance.edit', 'attendance.view',
     'stats.edit', 'stats.view', 'analytics.view',
@@ -183,6 +194,9 @@ const ROLE_GRANTS: Record<Role, readonly Action[]> = {
     'evaluation.view',
     'data.export',
   ],
+  // Schedules the games of existing leagues and tournaments and keeps the field
+  // maps; sees the teams and games it schedules, nothing else.
+  scheduler: ['team.view', 'game.view', 'fixture.schedule', 'field.manage'],
   coach: [
     'member.invite',
     'team.edit', 'team.delete', 'team.view',

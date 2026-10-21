@@ -69,7 +69,7 @@ export default function NotificationBell({ onOpen }: { onOpen?: (link: string) =
         <div className="bell-panel" role="dialog" aria-label="Notifications">
           <h3>Notifications</h3>
           {items.length === 0 ? (
-            <p className="note">Nothing yet.</p>
+            <p className="note">All quiet for now 😌</p>
           ) : (
             <ul className="bell-list">
               {items.map((n) => {

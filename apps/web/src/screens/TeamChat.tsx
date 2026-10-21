@@ -328,7 +328,7 @@ export default function TeamChat({ teamId, initialChannel }: { teamId: string; i
       ) : (
         <>
           <div className="chat-list" ref={listRef}>
-            {chat.messages.length === 0 && <p className="note">No messages yet. Say hello.</p>}
+            {chat.messages.length === 0 && <p className="note">No messages yet. Be the first to say hello 👋</p>}
             {chat.messages.map((m) =>
               m.kind === 'system' ? (
                 <div key={m.id} className="chat-system">

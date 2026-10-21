@@ -19,7 +19,7 @@ import SignIn from './screens/SignIn';
 import GlobalSearch from './components/GlobalSearch';
 import InviteShare from './components/InviteShare';
 import { ImpersonationBanner } from './components/Impersonation';
-import ScopeTeams, { JoinHelp } from './screens/ScopeTeams';
+import ScopeTeams from './screens/ScopeTeams';
 import { FeaturesProvider } from './lib/features';
 import { lazyScreen } from './lib/lazyScreen';
 import NotificationBell from './components/NotificationBell';
@@ -39,6 +39,23 @@ import { PENDING_JOIN_KEY, PENDING_REF_KEY } from './lib/pendingKeys';
 import RefereeSettings from './components/RefereeSettings';
 import { startUsageTracking, trackPage } from './lib/usage';
 import { InstallBanner, NotifyAsk } from './components/InstallCard';
+import VerseOfTheDay from './components/VerseOfTheDay';
+import { revealInFold, useFoldCards } from './lib/foldCards';
+import { loadLorelei } from './lib/lorelei';
+import RegionFields from './components/RegionFields';
+import Onboard, { type OnboardChoice } from './components/Onboard';
+
+/** Set when a parent says they are starting to coach a team of their own. */
+const COACHING_OWN_KEY = 'lineup.coachingOwn';
+/** A new person's answer to "parent or coach?" before they have any team. */
+const ONBOARD_KEY = 'lineup.onboard';
+
+/**
+ * Pages whose cards fold to their titles (Fady, 10/20: options and sub-items
+ * only show when tapped; 10/20 also Teams, Stats and Help). Pages that are
+ * mostly one view (standings, calendar, chat) stay as they are.
+ */
+const FOLD_SCREENS = new Set<string>(['account', 'team', 'teams', 'analytics', 'settings', 'org', 'signups', 'referee', 'support']);
 
 // The team's tabs other than Standings load on first use, and are fetched in
 // the background once the app is idle, so they still open instantly.
@@ -104,7 +121,7 @@ interface Selection {
  * calendar, where those games show.
  */
 const SCOPE_TABS: Array<[Screen, string]> = [
-  ['seasons', 'Games & matches'],
+  ['seasons', '⚽ Games'],
   ['standings', 'Standings'],
   ['calendar', 'Calendar'],
   ['teams', 'Teams'],
@@ -146,8 +163,8 @@ function screenFromPath(pathname: string): Screen {
 /** Page names for the admin console's usage counts (Fady, 10/19). */
 const PAGE_NAME: Record<Screen, string> = {
   standings: 'Standings',
-  seasons: 'Games & matches',
-  competitions: 'Games & matches',
+  seasons: 'Games',
+  competitions: 'Games',
   calendar: 'Calendar',
   teams: 'Teams',
   chat: 'Chat',
@@ -435,6 +452,8 @@ export default function App() {
         if (cancelled) return;
         await screen.preload();
       }
+      // The avatar art, so rosters and cards draw faces straight away.
+      if (!cancelled) await loadLorelei().catch(() => undefined);
     });
     return () => {
       cancelled = true;
@@ -531,7 +550,16 @@ export default function App() {
   // Team capacity comes from the plan, so the button disappears at the limit
   // rather than letting the create call fail with a 402. Team parents,
   // parents and viewers join by invite and never create teams.
-  const familyOnly = teams.length > 0 && isFamilyOnly(teams.map((t) => t.myRole));
+  // A parent who says they are starting to coach their own team (Account) can
+  // create one; until then, parents never see team creation (Shadi, 10/20).
+  const [coachingOwn, setCoachingOwn] = useState(() => {
+    try {
+      return localStorage.getItem(COACHING_OWN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const familyOnly = !coachingOwn && teams.length > 0 && isFamilyOnly(teams.map((t) => t.myRole));
   const teamLimit = me?.limits?.teams ?? Number.MAX_SAFE_INTEGER;
   const canAddTeam = !familyOnly && teams.length < teamLimit;
   const teamLimitLabel =
@@ -648,10 +676,44 @@ export default function App() {
     navigate('matchday');
   }
 
+  /** Where a team's leagues and tournaments live: its own Games tab when standalone (Shadi, 10/20). */
+  function openGamesFor(t: Team | null | undefined) {
+    if (t && !t.inLeague) {
+      setSelection({ kind: 'team', id: t.id });
+      setTeamId(t.id);
+      navigate('seasons');
+    } else {
+      navigate('competitions');
+    }
+  }
+
   function startAddingTeam() {
     setAddingTeam(true);
     setMenuOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // Someone with no team yet is asked first: parent or own-team coach?
+  const noTeamYet =
+    !loading && teams.length === 0 && screen !== 'account' && screen !== 'plans' && screen !== 'referee' && !(me?.refereeOrgs ?? 0);
+  const [onboard, setOnboard] = useState<OnboardChoice | null>(() => {
+    try {
+      // An answer on the home page (coach, region, organization) already says.
+      const planFor = localStorage.getItem(PLAN_FOR_KEY);
+      const v = localStorage.getItem(ONBOARD_KEY) ?? (planFor ? (planFor === 'parent' ? 'parent' : 'coach') : null);
+      return v === 'parent' || v === 'coach' ? v : null;
+    } catch {
+      return null;
+    }
+  });
+  function chooseOnboard(c: OnboardChoice | null) {
+    setOnboard(c);
+    try {
+      if (c) localStorage.setItem(ONBOARD_KEY, c);
+      else localStorage.removeItem(ONBOARD_KEY);
+    } catch {
+      /* private mode */
+    }
   }
 
   // While adding a team, show only the form. The rest of the page belongs to
@@ -660,6 +722,8 @@ export default function App() {
 
   const orgs = hierarchy?.orgs ?? [];
   const standaloneRegions = hierarchy?.regions ?? [];
+  // Organization and region staff skip the parent-or-coach question.
+  const managesSomething = orgs.length > 0 || standaloneRegions.length > 0;
   const allRegions = [...orgs.flatMap((o) => o.regions), ...standaloneRegions];
   // Can set up or already belongs to an organization or region, as opposed
   // to only seeing it as a paid upgrade.
@@ -711,6 +775,10 @@ export default function App() {
     if (game && game.id !== gameId) setGameId(game.id);
     else if (!game && gameId) setGameId(null);
   }, [game, gameId]);
+
+  // Settings-style pages show each card's title only, until it is tapped.
+  const [mainEl, setMainEl] = useState<HTMLElement | null>(null);
+  useFoldCards(mainEl, screen, FOLD_SCREENS.has(screen));
 
   // Share links are gone (Fady, 10/19): things are shared as images and
   // calendar files that the app makes on the spot and never keeps.
@@ -940,7 +1008,13 @@ export default function App() {
       : TEAM_TABS
   )
     // Viewers follow the team but have no chat of their own.
-    .filter(([id]) => !(id === 'chat' && myRole === 'viewer'));
+    .filter(([id]) => !(id === 'chat' && myRole === 'viewer'))
+    // A standalone team has its own Games tab: its coach's leagues,
+    // tournaments and friendlies, never an organization's or region's
+    // (Shadi, 10/20).
+    .flatMap((tab): Array<[Screen, string]> =>
+      tab[0] === 'calendar' && team && !team.inLeague && !noMatchDay ? [tab, ['seasons', '⚽ Games']] : [tab],
+    );
   // Organization and region settings live on the organization's or region's
   // own page, for the people who can manage it or invite into it.
   const parentOfRegion = selection?.kind === 'region' ? orgs.find((o) => o.regions.some((r) => r.id === selection.id)) : undefined;
@@ -1086,7 +1160,7 @@ export default function App() {
               hint: 'Your season, or a tournament you are entering.',
               done: leaguesKnown ? comps.length > 0 : undefined,
               show: () => {
-                navigate('competitions');
+                openGamesFor(coachTeam);
                 point('[data-tour="new-competition"]', 'Tap “＋ League or season” or “＋ Tournament” to create it.');
               },
             },
@@ -1096,7 +1170,7 @@ export default function App() {
               hint: 'They show on your team’s calendar.',
               done: leaguesKnown ? comps.some((c) => c.games > 0) : undefined,
               show: () => {
-                navigate('competitions');
+                openGamesFor(coachTeam);
                 point('[data-tour="competition-list"]', 'Open your league, add your team, then tap “＋ Schedule a game”.');
               },
             },
@@ -1119,11 +1193,15 @@ export default function App() {
 
   return (
     <FeaturesProvider features={me.features}>
-    <main className="wrap">
+    <main className="wrap" ref={setMainEl}>
       <InstallBanner
         onOpen={() => {
           navigate('account');
-          window.setTimeout(() => document.getElementById('install')?.scrollIntoView({ behavior: 'smooth' }), 300);
+          window.setTimeout(() => {
+            const card = document.getElementById('install');
+            revealInFold(card);
+            card?.scrollIntoView({ behavior: 'smooth' });
+          }, 300);
         }}
       />
       {!me.impersonation?.active && <NotifyAsk />}
@@ -1210,18 +1288,8 @@ export default function App() {
               </button>
             ) : null
           }
-          top={
-            teams.length > 0 ? (
-              <button
-                type="button"
-                className={`item ${screen === 'competitions' ? 'on' : ''}`}
-                onPointerDown={() => void api.competitions('mine', '').catch(() => undefined)}
-                onClick={() => navigate('competitions')}
-              >
-                🏟️ Games &amp; matches
-              </button>
-            ) : null
-          }
+          // No separate Games item (Fady, 10/20): a coach's own teams add games from their
+          // Calendar, whose ＋ Game also leads to their own leagues and tournaments.
         >
           {(me?.refereeOrgs ?? 0) > 0 && (
             <button
@@ -1294,20 +1362,22 @@ export default function App() {
 
       {inviteNotice && <InviteShare invite={inviteNotice} onClose={() => setInviteNotice(null)} />}
 
-      {teams.length === 0 && !addingTeam && screen !== 'account' && screen !== 'plans' && screen !== 'referee' && !(me?.refereeOrgs ?? 0) && (
-        <section className="card">
-          <h2>Signing up a child with your league?</h2>
-          <p className="note">
-            If your region gave you a code (like SYSO-CYPRESS154), use it to sign your children up. The
-            region places them on a team. Coaches starting their own team can use the form below.
-          </p>
-          <button type="button" className="btn ghost" onClick={() => navigate('account')}>
-            Enter a region code
-          </button>
-        </section>
+      {noTeamYet && !addingTeam && !managesSomething && (
+        <Onboard
+          choice={onboard}
+          onChoose={chooseOnboard}
+          onCode={(code) => {
+            try {
+              localStorage.setItem(PENDING_JOIN_KEY, code);
+            } catch {
+              /* private mode */
+            }
+            navigate('account');
+          }}
+        />
       )}
 
-      {((teams.length === 0 && screen !== 'account' && screen !== 'plans' && screen !== 'referee' && !(me?.refereeOrgs ?? 0)) || addingTeam) && (
+      {((noTeamYet && (onboard === 'coach' || managesSomething)) || addingTeam) && (
         <NewTeam
           canCancel={teams.length > 0}
           onCancel={() => setAddingTeam(false)}
@@ -1415,7 +1485,27 @@ export default function App() {
           />
         </Lazy>
       )}
-      {(screen === 'competitions' || (screen === 'seasons' && selection?.kind !== 'org' && selection?.kind !== 'region')) && (
+      {/* A scheduler keeps the field maps but has no Settings tab (Fady, 10/20). */}
+      {screen === 'seasons' && selection?.kind === 'region' && selectedRegion?.canSchedule && !canOpenSettings && (
+        <RegionFields regionId={selection.id} />
+      )}
+      {screen === 'seasons' && selection?.kind === 'team' && team && (
+        <Lazy>
+          <Competitions
+            key={`team-${team.id}`}
+            scope="team"
+            id={team.id}
+            initialOpenId={openCompetition}
+            onOpenGame={openGame}
+            friendlyTeams={
+              ['coach', 'assistant', 'org_admin', 'director', 'region_admin'].includes(team.myRole ?? '')
+                ? [{ id: team.id, name: team.name }]
+                : []
+            }
+          />
+        </Lazy>
+      )}
+      {(screen === 'competitions' || (screen === 'seasons' && !selection)) && (
         <Lazy>
           <Competitions
             scope="mine"
@@ -1437,7 +1527,13 @@ export default function App() {
 
       {screen === 'calendar' && selection && selection.kind === 'team' && (
         <Lazy>
-          <TeamCalendar key={selection.id} teamId={selection.id} onOpenGame={openGame} focus={focus} />
+          <TeamCalendar
+            key={selection.id}
+            teamId={selection.id}
+            onOpenGame={openGame}
+            focus={focus}
+            onOpenGames={() => openGamesFor(teams.find((t) => t.id === selection.id))}
+          />
         </Lazy>
       )}
       {screen === 'calendar' && selection && selection.kind !== 'team' && (
@@ -1470,6 +1566,7 @@ export default function App() {
             canOpenSignups ? () => navigate('signups') : canOpenSettings ? () => navigate('settings') : undefined
           }
           openLabel={canOpenSignups ? 'Open Sign-ups' : 'Open Settings'}
+          onOpenGames={() => navigate('seasons')}
           onChanged={() => void reloadAll()}
         />
       )}
@@ -1543,6 +1640,14 @@ export default function App() {
           onLogo={() => void refreshMe()}
           onPlayers={setPlayers}
           onTeam={(t) => setTeams((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...t } : x)))}
+          joinVia={
+            selectedTeam?.regionId
+              ? { name: selectedTeam.regionName ?? 'region', onOpenLeagues: () => navigate('competitions') }
+              : selectedTeam?.orgId
+                ? { name: selectedTeam.orgName ?? 'organization', onOpenLeagues: () => navigate('competitions') }
+                : null
+          }
+          onCreateLeague={() => openGamesFor(team)}
         />
       )}
       {screen === 'team' && teamScreens && !noMatchDay && canImportRoster && players.length > 0 && (
@@ -1581,6 +1686,15 @@ export default function App() {
             })(),
           })}
           onRefresh={reloadAll}
+          onStartCoaching={() => {
+            try {
+              localStorage.setItem(COACHING_OWN_KEY, '1');
+            } catch {
+              /* private mode: this session only */
+            }
+            setCoachingOwn(true);
+            startAddingTeam();
+          }}
           onTrialStarted={async (scope) => {
             await reloadAll();
             if (scope.orgId) select('org', scope.orgId);
@@ -1626,7 +1740,7 @@ export default function App() {
 
       {screen === 'settings' && selection && selection.kind !== 'team' && canOpenSettings && (
         <>
-          {selection.kind === 'org' && <JoinHelp kind="org" />}
+          {/* How families join lives on the Teams tab only (Fady, 10/20). */}
           <Lazy>
             <Organization focus={{ kind: selection.kind, id: selection.id }} onChanged={reloadAll} />
           </Lazy>
@@ -1636,7 +1750,6 @@ export default function App() {
 
       {screen === 'signups' && selection?.kind === 'region' && canOpenSignups && (
         <>
-          <JoinHelp kind="region" />
           <Lazy>
             <Organization focus={{ kind: 'region', id: selection.id }} section="signups" onChanged={reloadAll} />
           </Lazy>
@@ -1651,6 +1764,7 @@ export default function App() {
         </>
       )}
       {!focusNewTeam && <AdSlot show={showAds} position="bottom" />}
+      <VerseOfTheDay page={screen} />
     </main>
     </FeaturesProvider>
   );

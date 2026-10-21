@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import FriendlyRequests from '../components/FriendlyRequests';
 import { COMPETITION_KINDS } from '@lineup/shared';
 import {
   api,
@@ -63,6 +64,7 @@ export default function Competitions({
   const [openId, setOpenId] = useState<string | null>(initialOpenId);
   const [creating, setCreating] = useState<CompetitionKind | 'friendly' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api
@@ -98,7 +100,10 @@ export default function Competitions({
   const past = list.competitions.filter((c) => c.status === 'archived');
   const options = list.createOptions ?? (list.createAs ? [{ ...list.createAs, label: '' }] : []);
   const canCreateCompetition = list.canCreate && options.length > 0;
-  const canFriendly = scope === 'mine' && friendlyTeams.length > 0;
+  // Org and region staff add a friendly between two of its teams here; coaches
+  // request one from their team's calendar, and staff approve it (Shadi, 10/20).
+  const scopeTeams = scope === 'region' || scope === 'org' ? list.friendlyTeams ?? [] : [];
+  const canFriendly = ((scope === 'mine' || scope === 'team') && friendlyTeams.length > 0) || scopeTeams.length > 1;
   // League or season first, then tournament, then friendly (Fady, 10/19).
   const addButtons: Array<[CompetitionKind | 'friendly', string]> = [
     ...(canCreateCompetition
@@ -114,7 +119,7 @@ export default function Competitions({
     <>
       <section className="card" data-tour="competition-list">
         <div className="card-head">
-          <h2>Games &amp; matches</h2>
+          <h2>Games</h2>
         </div>
         {addButtons.length > 0 && (
           <div className="row cal-create" role="group" aria-label="Add games" data-tour="new-competition">
@@ -125,7 +130,7 @@ export default function Competitions({
                 className={`btn btn-sm${creating === k ? '' : ' ghost'}`}
                 aria-pressed={creating === k}
                 onClick={() => {
-                  if (k === 'friendly' && friendlyTeams.length === 1) {
+                  if (k === 'friendly' && scopeTeams.length === 0 && friendlyTeams.length === 1) {
                     openFriendly(friendlyTeams[0].id);
                     return;
                   }
@@ -137,13 +142,29 @@ export default function Competitions({
             ))}
           </div>
         )}
-        {scope === 'mine' && (
+        {(scope === 'mine' || scope === 'team') && (
           <p className="note">
             Create a league, season or tournament, tick the teams taking part, and schedule its games here: they show
             on each team’s calendar. A friendly is added to one of your teams’ calendars.
           </p>
         )}
-        {creating === 'friendly' && (
+        {creating === 'friendly' && scopeTeams.length > 1 && (
+          <ScopeFriendlyForm
+            teams={scopeTeams}
+            onCancel={() => setCreating(null)}
+            onDone={(m) => {
+              setCreating(null);
+              setNotice(m);
+              load();
+            }}
+          />
+        )}
+        {notice && (
+          <p className="note" role="status">
+            {notice}
+          </p>
+        )}
+        {creating === 'friendly' && scopeTeams.length === 0 && (
           <div className="comp-form">
             <p className="sub">Which team is the friendly for?</p>
             <div className="row">
@@ -194,10 +215,18 @@ export default function Competitions({
           </ul>
         )}
       </section>
+      {list.approvesFriendlies && (scope === 'region' || scope === 'org') && (
+        <FriendlyRequests query={{ scope, id }} onChanged={load} />
+      )}
       {list.friendlies && (
         <FriendliesCard
           friendlies={list.friendlies}
           onOpenGame={onOpenGame}
+          emptyNote={
+            canFriendly
+              ? 'No friendlies coming up. Tap “＋ Friendly” to add one to a team’s calendar.'
+              : 'No friendlies coming up. A team asks for one from its calendar (＋ Game).'
+          }
         />
       )}
       {past.length > 0 && (
@@ -219,9 +248,11 @@ export default function Competitions({
 function FriendliesCard({
   friendlies,
   onOpenGame,
+  emptyNote,
 }: {
   friendlies: FriendlyItem[];
   onOpenGame: (teamId: string, gameId: string) => void;
+  emptyNote: string;
 }) {
   const [showPast, setShowPast] = useState(false);
   const ahead = friendlies.filter((f) => !f.past);
@@ -250,7 +281,7 @@ function FriendliesCard({
     <section className="card">
       <h2>Friendlies</h2>
       {ahead.length === 0 ? (
-        <p className="note">No friendlies coming up. Tap “＋ Friendly” to add one to a team’s calendar.</p>
+        <p className="note">{emptyNote}</p>
       ) : (
         <ul className="comp-list">{ahead.map(row)}</ul>
       )}
@@ -436,7 +467,7 @@ function CompetitionView({
       <section className="card">
         <div className="card-head">
           <button type="button" className="btn ghost btn-sm" onClick={onBack}>
-            ‹ All games &amp; matches
+            ‹ All games
           </button>
           {c.canEdit && !editing && (
             <button type="button" className="btn ghost btn-sm" onClick={() => setEditing(true)}>
@@ -561,8 +592,9 @@ function CompetitionView({
         )}
       </section>
 
-      {/* Every league and tournament has its sign-up link on its page (Fady, 10/19). */}
-      {c.canEdit && <CoachSignupsPanel competitionId={c.id} />}
+      {/* Every league and tournament has its sign-up link on its page (Fady, 10/19); coaches of
+          its teams see the link to share too (10/20), the panel stays hidden for everyone else. */}
+      <CoachSignupsPanel competitionId={c.id} />
 
       <section className="card">
         <h2>Standings</h2>
@@ -576,7 +608,7 @@ function CompetitionView({
           <h2>
             Games <span className="count">{c.games.length}</span>
           </h2>
-          {c.canEdit && c.teams.length > 0 && !scheduling && (
+          {(c.canEdit || c.canSchedule) && c.teams.length > 0 && !scheduling && (
             <button type="button" className="btn btn-sm" onClick={() => setScheduling(true)}>
               ＋ Schedule a game
             </button>
@@ -827,7 +859,7 @@ export function CompetitionStandings({
   id: string;
   /** Open the league or tournament itself. */
   onOpen: (competitionId: string) => void;
-  /** Go to the Games & matches tab. */
+  /** Go to the Games tab. */
   onAll: () => void;
 }) {
   const [list, setList] = useState<CompetitionSummary[] | null>(null);
@@ -886,7 +918,7 @@ export function CompetitionStandings({
         <>
           <p className="note">No league or tournament is running right now. Standings show here while one is on.</p>
           <button type="button" className="btn ghost btn-sm" onClick={onAll}>
-            Games &amp; matches
+            Games
           </button>
         </>
       ) : !detail || detail.id !== pick ? (
@@ -904,5 +936,133 @@ export function CompetitionStandings({
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * ＋ Friendly on an organization's or region's Games tab (Shadi, 10/20): its
+ * staff pick the two teams. It goes straight on both calendars when the
+ * caller approves for both sides; across regions a region's staff approve
+ * their side and the other region (or the organization) is asked.
+ */
+function ScopeFriendlyForm({
+  teams,
+  onCancel,
+  onDone,
+}: {
+  teams: Array<{ id: string; name: string; regionName: string | null }>;
+  onCancel: () => void;
+  onDone: (message: string) => void;
+}) {
+  const [home, setHome] = useState('');
+  const [away, setAway] = useState('');
+  const [opponents, setOpponents] = useState<Array<{ id: string; name: string; regionName: string | null }> | null>(null);
+  const [date, setDate] = useState('');
+  const [kickoff, setKickoff] = useState('');
+  const [location, setLocation] = useState('');
+  const [field, setField] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fields = useRegionFields(home ? { teamId: home } : null);
+
+  // The away team comes from the home team's organization, any region.
+  useEffect(() => {
+    setAway('');
+    setOpponents(null);
+    if (!home) return;
+    api
+      .friendlyOpponents(home)
+      .then((r) => setOpponents(r.opponents))
+      .catch(() => setOpponents([]));
+  }, [home]);
+
+  const label = (t: { name: string; regionName: string | null }) => (t.regionName ? `${t.name} · ${t.regionName}` : t.name);
+  const awayTeam = opponents?.find((o) => o.id === away) ?? null;
+
+  async function save() {
+    if (!awayTeam) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.createFriendly({
+        teamId: home,
+        opponent: awayTeam.name,
+        opponentTeamId: awayTeam.id,
+        date,
+        kickoff,
+        isHome: true,
+        location: location.trim(),
+        field: field.trim() || undefined,
+      });
+      onDone(
+        r.status === 'pending'
+          ? `Saved. It goes on both calendars once ${r.waitingFor ?? 'the other region'} approves it.`
+          : 'Friendly added to both teams’ calendars. Both teams have been told.',
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not add the friendly');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="comp-form">
+      <p className="sub">A friendly between two of your teams. It never counts toward standings.</p>
+      {error && <p className="danger-text">{error}</p>}
+      <div className="field-grid">
+        <label>
+          Home team
+          <select value={home} onChange={(e) => setHome(e.target.value)}>
+            <option value="">Pick a team</option>
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {label(t)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Away team
+          <select value={away} disabled={!home || !opponents} onChange={(e) => setAway(e.target.value)}>
+            <option value="">{home && !opponents ? 'Loading…' : 'Pick a team'}</option>
+            {(opponents ?? []).map((t) => (
+              <option key={t.id} value={t.id}>
+                {label(t)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Date
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </label>
+        <label>
+          Kick-off
+          <input type="time" value={kickoff} onChange={(e) => setKickoff(e.target.value)} />
+        </label>
+        <label>
+          Location
+          <LocationInput value={location} onChange={setLocation} label="Location" placeholder="e.g. Central Park" presets={fields} />
+        </label>
+        <label>
+          Field number (optional)
+          <input value={field} maxLength={40} onChange={(e) => setField(e.target.value)} />
+        </label>
+      </div>
+      <div className="row">
+        <button
+          type="button"
+          className="btn btn-sm"
+          disabled={busy || !home || !awayTeam || !date || !kickoff || !location.trim()}
+          onClick={() => void save()}
+        >
+          {busy ? 'Saving…' : 'Add friendly'}
+        </button>
+        <button type="button" className="btn ghost btn-sm" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }

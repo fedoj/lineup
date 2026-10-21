@@ -130,8 +130,14 @@ async function teamsInScope(
 /**
  * League scheduling is an org- or region-level act. canOnScope never matches
  * a team-level membership, so a coach cannot schedule other teams' games.
+ * Staff and the scheduler role (Fady, 10/20) schedule and edit games;
+ * deleting one stays with staff (canManageGames).
  */
 function canSchedule(access: AccessContext, t: { org_id: string; region_id: string | null }): boolean {
+  return canOnScope(access, { orgId: t.org_id, regionId: t.region_id }, 'fixture.schedule').allowed;
+}
+
+function canManageGames(access: AccessContext, t: { org_id: string; region_id: string | null }): boolean {
   return canOnScope(access, { orgId: t.org_id, regionId: t.region_id }, 'game.create').allowed;
 }
 
@@ -599,6 +605,16 @@ export async function fixturesHandler(
       ) {
         return FORBIDDEN;
       }
+      // A scheduler edits games but never deletes them; that stays with staff.
+      if (
+        req.method === 'DELETE' &&
+        !(
+          canManageGames(access, { org_id: f.org_id, region_id: f.home_region }) &&
+          canManageGames(access, { org_id: f.org_id, region_id: f.away_region })
+        )
+      ) {
+        return FORBIDDEN;
+      }
       if (req.method === 'PATCH') {
         const lock = await fixtureLocked(f.id);
         if (lock) return lock;
@@ -725,7 +741,7 @@ export async function fixturesHandler(
     for (const t of [home, away]) {
       if (!canSchedule(access, t)) {
         return denyResponse(
-          canOnScope(access, { orgId: t.org_id, regionId: t.region_id }, 'game.create'),
+          canOnScope(access, { orgId: t.org_id, regionId: t.region_id }, 'fixture.schedule'),
         );
       }
       const denied = await enforceTeamScopedLimit(user.id, t.id, 'gamesPerTeam');
@@ -778,34 +794,70 @@ export async function fixturesHandler(
 /* -------------------------------------------------------------- friendlies */
 
 /**
- * Lineup teams a friendly can be played against (Fady, 10/19): every team in
- * the same organization or region, and the other teams the caller can reach
- * (their own, or ones they coach elsewhere). Not the team itself, and never
- * deleted or archived teams.
+ * Lineup teams a game can be played against (Fady, 10/19; 10/20).
+ *
+ * Two separate worlds: a team in an organization or region plays the other
+ * teams of that organization or region, and a coach's own (standalone) team
+ * plays other standalone teams only, never a league team, even one the same
+ * coach also coaches. A standalone team sees the standalone teams its coach
+ * is on, and finds any other standalone team by name (`search`, 3 letters or
+ * more, 60 results). Not the team itself, and never deleted or archived teams.
  */
-async function friendlyOpponents(userId: string, teamId: string) {
+async function friendlyOpponents(userId: string, teamId: string, search?: string) {
   const own = await queryOne<{ org_id: string; org_personal: boolean; region_id: string | null; region_personal: boolean | null }>(
     `SELECT t.org_id, o.is_personal AS org_personal, t.region_id, r.is_personal AS region_personal
        FROM team t JOIN organization o ON o.id = t.org_id LEFT JOIN region r ON r.id = t.region_id
       WHERE t.id = $1`,
     [teamId],
   );
-  if (!own) return [];
+  if (!own) return { standalone: false, rows: [] };
   const reachable = await reachableTeamIds(userId);
+  type Row = { id: string; name: string; region_name: string | null; org_name: string | null; mine: boolean };
+  const standaloneOwn = own.org_personal && !(own.region_id && own.region_personal === false);
+  if (standaloneOwn) {
+    const q = (search ?? '').trim().slice(0, 40);
+    const rows = await query<Row>(
+      `SELECT t.id, t.name, NULL::text AS region_name, NULL::text AS org_name, (t.id = ANY($2::uuid[])) AS mine
+         FROM team t JOIN organization o ON o.id = t.org_id LEFT JOIN region r ON r.id = t.region_id
+        WHERE t.id <> $1 AND t.deleted_at IS NULL AND t.archived_at IS NULL
+          AND o.is_personal AND NOT (t.region_id IS NOT NULL AND r.is_personal = false)
+          AND (t.id = ANY($2::uuid[]) OR (length($3) >= 3 AND t.name ILIKE '%' || $3 || '%'))
+        ORDER BY (t.id = ANY($2::uuid[])) DESC, t.name
+        LIMIT 60`,
+      [teamId, reachable, q.replace(/[%_\\]/g, '')],
+    );
+    return { standalone: true, rows };
+  }
   // A real organization, or a standalone region inside a hidden personal one.
   const sameLeagueOrg = !own.org_personal ? own.org_id : null;
   const sameLeagueRegion = own.org_personal && own.region_id && own.region_personal === false ? own.region_id : null;
-  return query<{ id: string; name: string; region_name: string | null; org_name: string | null; mine: boolean }>(
+  const rows = await query<Row>(
     `SELECT t.id, t.name, CASE WHEN r.is_personal THEN NULL ELSE r.name END AS region_name,
             CASE WHEN o.is_personal THEN NULL ELSE o.name END AS org_name,
             (t.id = ANY($4::uuid[])) AS mine
        FROM team t JOIN organization o ON o.id = t.org_id LEFT JOIN region r ON r.id = t.region_id
       WHERE t.id <> $1 AND t.deleted_at IS NULL AND t.archived_at IS NULL
-        AND (t.id = ANY($4::uuid[]) OR ($2::uuid IS NOT NULL AND t.org_id = $2) OR ($3::uuid IS NOT NULL AND t.region_id = $3))
+        AND (($2::uuid IS NOT NULL AND t.org_id = $2) OR ($3::uuid IS NOT NULL AND t.region_id = $3))
       ORDER BY (t.id = ANY($4::uuid[])) DESC, r.name NULLS FIRST, t.name
       LIMIT 500`,
     [teamId, sameLeagueOrg, sameLeagueRegion, reachable],
   );
+  return { standalone: false, rows };
+}
+/** The opponent team, when this team may play it (the rules in friendlyOpponents). */
+async function allowedOpponent(userId: string, teamId: string, opponentId: string): Promise<{ id: string; name: string } | null> {
+  const listed = (await friendlyOpponents(userId, teamId)).rows.find((t) => t.id === opponentId);
+  if (listed) return listed;
+  // A standalone team may play any other standalone team, found by name.
+  const pair = await query<{ id: string; name: string; standalone: boolean }>(
+    `SELECT t.id, t.name, (o.is_personal AND NOT (t.region_id IS NOT NULL AND r.is_personal = false)) AS standalone
+       FROM team t JOIN organization o ON o.id = t.org_id LEFT JOIN region r ON r.id = t.region_id
+      WHERE t.id = ANY($1::uuid[]) AND t.deleted_at IS NULL AND t.archived_at IS NULL`,
+    [[teamId, opponentId]],
+  );
+  const mine = pair.find((t) => t.id === teamId);
+  const them = pair.find((t) => t.id === opponentId);
+  return mine?.standalone && them?.standalone && teamId !== opponentId ? { id: them.id, name: them.name } : null;
 }
 
 /**
@@ -827,10 +879,14 @@ export async function friendliesHandler(
     if (req.method === 'GET') {
       const guard = await guardTeam(user, clip(req.query.get('teamId'), 40) || undefined, 'game.create');
       if (!guard.ok) return guard.response;
-      const rows = await friendlyOpponents(user.id, guard.team.teamId);
+      const { standalone, rows } = await friendlyOpponents(user.id, guard.team.teamId, clip(req.query.get('search'), 40));
       return {
         status: 200,
         jsonBody: {
+          // A coach's own team finds other standalone teams by name.
+          searchable: standalone,
+          // A team in an organization or region requests friendlies with its other teams (Shadi, 10/20).
+          requestOnly: !standalone,
           opponents: rows.map((r) => ({ id: r.id, name: r.name, regionName: r.region_name, orgName: r.org_name, mine: r.mine })),
         },
       };
@@ -858,10 +914,29 @@ export async function friendliesHandler(
     // Only a coach (or above) decides that; on a game an assistant creates it stays off.
     const assistantFree = Boolean(b.assistantFree) && canOnTeam(guard.ctx, guard.team, 'team.edit').allowed;
 
-    // Inside an organization or region, regular games are scheduled by its
-    // admins and directors; coaches add friendlies. A standalone team has no
-    // league, so its coach records both.
+    // Inside an organization or region, league and tournament games are
+    // scheduled by its staff, and a coach only requests friendlies against
+    // its other teams (Shadi, 10/20). A standalone team has no league, so its
+    // coach records both.
     const regular = b.kind === 'game';
+    const home = await queryOne<ScopeTeam>(`SELECT ${TEAM_COLUMNS} ${TEAM_JOINS} WHERE t.id = $1`, [guard.team.teamId]);
+    if (!home) return FORBIDDEN;
+    const leagueTeam = !isStandaloneTeam(home);
+    if (leagueTeam && (regular || clip(b.competitionId, 36))) {
+      return {
+        status: 403,
+        jsonBody: {
+          error: 'This team plays in an organization or region, so its league and tournament games are scheduled there. You can request a friendly.',
+          code: 'LEAGUE_SCHEDULES_GAMES',
+        },
+      };
+    }
+    if (leagueTeam && !clip(b.opponentTeamId, 40)) {
+      return {
+        status: 400,
+        jsonBody: { error: 'Pick the team you would like to play from your region or organization.', code: 'PICK_TEAM' },
+      };
+    }
     // A regular game belongs to a league or tournament (Fady, 10/16); a
     // friendly can stand on its own.
     if (regular && !clip(b.competitionId, 36)) {
@@ -879,7 +954,7 @@ export async function friendliesHandler(
     const opponentTeamId = clip(b.opponentTeamId, 40);
     if (opponentTeamId) {
       if (regular) return { status: 400, jsonBody: { error: 'Pick another Lineup team for a friendly only.' } };
-      opponentTeam = (await friendlyOpponents(user.id, guard.team.teamId)).find((t) => t.id === opponentTeamId) ?? null;
+      opponentTeam = await allowedOpponent(user.id, guard.team.teamId, opponentTeamId);
       if (!opponentTeam) {
         return { status: 400, jsonBody: { error: 'That team can’t be picked. Type its name instead.', code: 'OPPONENT_NOT_ALLOWED' } };
       }
@@ -900,6 +975,20 @@ export async function friendliesHandler(
 
     const denied = await enforceTeamScopedLimit(user.id, guard.team.teamId, 'gamesPerTeam');
     if (denied) return { status: denied.status, jsonBody: denied.body };
+
+    // A team in an organization or region asks for a friendly; its staff
+    // approve it before it goes on the calendars (Shadi, 10/20).
+    if (leagueTeam) {
+      return await requestFriendly(guard.ctx, user.id, home!, opponentTeam!, {
+        date,
+        kickoff,
+        isHome: b.isHome !== false,
+        location: clip(b.location, 160),
+        field: clip(b.field, 40) || null,
+        assistantFree,
+      }, ctx);
+    }
+
     // In a league or tournament the caller runs (for example a coach's own
     // season, or a tournament game against a team that is not on Lineup).
     const comp = await competitionForGame(guard.ctx, user.id, b.competitionId, date, [guard.team.teamId]);
@@ -912,97 +1001,35 @@ export async function friendliesHandler(
         jsonBody: { error: 'In this league or tournament both teams come from its list of teams.', code: 'PICK_FROM_LIST' },
       };
     }
-    // Inside an organization or region its staff schedule the league's games;
-    // a coach's own league or tournament takes any team they coach, in a
-    // region or not (Fady, 10/19), so only that case is checked here.
-    if (regular && !comp.coachOwned) {
-      const home = await queryOne<ScopeTeam>(
-        `SELECT ${TEAM_COLUMNS} ${TEAM_JOINS} WHERE t.id = $1`,
-        [guard.team.teamId],
-      );
-      if (!home || !isStandaloneTeam(home)) {
-        return {
-          status: 403,
-          jsonBody: {
-            error: 'This team plays in an organization or region, so its games are scheduled there. You can add friendlies.',
-            code: 'LEAGUE_SCHEDULES_GAMES',
-          },
-        };
-      }
-    }
 
-    const team = await queryOne<{
-      format: string | null;
-      periods: string | null;
-      period_length_sec: number | null;
-      default_formation: string | null;
-    }>(
-      'SELECT format, periods, period_length_sec, default_formation FROM team WHERE id = $1',
-      [guard.team.teamId],
+    const { id, otherId } = await transaction((c) =>
+      insertFriendlyGames(c, {
+        teamId: guard.team.teamId,
+        opponentTeam,
+        opponent,
+        date,
+        kickoff,
+        isHome: b.isHome !== false,
+        location: clip(b.location, 160) || null,
+        field: clip(b.field, 40) || null,
+        regular,
+        assistantFree,
+        competitionId: comp.id,
+      }),
     );
-    const format = team?.format ?? '7v7';
-    const pairId = opponentTeam ? randomUUID() : null;
-    const ownName = opponentTeam
-      ? (await queryOne<{ name: string }>('SELECT name FROM team WHERE id = $1', [guard.team.teamId]))?.name ?? 'Team'
-      : '';
-
-    const { id, otherId } = await transaction(async (c) => {
-      await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [guard.team.teamId]);
-      const r = await c.query<{ id: string }>(
-        `INSERT INTO game (team_id, game_no, date, opponent, is_home, format, periods,
-                           period_length_sec, formation, kickoff, location, field, is_friendly, assistant_free, competition_id,
-                           pair_id, opponent_team_id)
-         VALUES ($1, (SELECT COALESCE(MAX(game_no), 0) + 1 FROM game WHERE team_id = $1),
-                 $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-         RETURNING id`,
-        [
-          guard.team.teamId, date, opponent, b.isHome !== false, format,
-          team?.periods ?? 'quarters', team?.period_length_sec ?? 720,
-          defaultFormation(format, team?.default_formation ?? null),
-          kickoff, clip(b.location, 160) || null, clip(b.field, 40) || null, !regular, assistantFree, comp.id,
-          pairId, opponentTeam?.id ?? null,
-        ],
-      );
-      if (!opponentTeam) return { id: r.rows[0].id, otherId: null };
-      // The same friendly on the other team's calendar, from their side.
-      await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [opponentTeam.id]);
-      const theirs = await c.query<{ format: string | null; periods: string | null; period_length_sec: number | null; default_formation: string | null }>(
-        'SELECT format, periods, period_length_sec, default_formation FROM team WHERE id = $1',
-        [opponentTeam.id],
-      );
-      const t2 = theirs.rows[0];
-      const f2 = t2?.format ?? format;
-      const o = await c.query<{ id: string }>(
-        `INSERT INTO game (team_id, game_no, date, opponent, is_home, format, periods,
-                           period_length_sec, formation, kickoff, location, field, is_friendly, pair_id, opponent_team_id)
-         VALUES ($1, (SELECT COALESCE(MAX(game_no), 0) + 1 FROM game WHERE team_id = $1),
-                 $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12, $13)
-         RETURNING id`,
-        [
-          opponentTeam.id, date, ownName, b.isHome === false, f2,
-          t2?.periods ?? 'quarters', t2?.period_length_sec ?? 720,
-          defaultFormation(f2, t2?.default_formation ?? null),
-          kickoff, clip(b.location, 160) || null, clip(b.field, 40) || null, pairId, guard.team.teamId,
-        ],
-      );
-      return { id: r.rows[0].id, otherId: o.rows[0].id };
-    });
 
     // The other team's coaches, assistants, team parents and parents hear about it.
     if (opponentTeam && otherId) {
-      const match = b.isHome === false ? `${opponentTeam.name} v ${ownName}` : `${ownName} v ${opponentTeam.name}`;
-      await query(
-        `INSERT INTO notification (user_id, kind, title, body, link)
-         SELECT DISTINCT m.user_id, 'message', $3, $4, $5
-           FROM membership m WHERE m.team_id = $1 AND m.user_id <> $2`,
-        [
-          opponentTeam.id,
-          user.id,
-          `New friendly: ${match}`,
-          `${prettyDay(date)}${kickoff ? ` at ${kickoff}` : ''}${b.location ? `, ${clip(b.location, 160)}` : ''}. It's on your team's calendar; let the coach know if you're going.`,
-          calendarLink(opponentTeam.id, `game:${otherId}`),
-        ],
-      ).catch((e) => ctx.warn('friendly notify failed', e));
+      await notifyNewFriendly({
+        teamId: guard.team.teamId,
+        opponentTeam,
+        otherId,
+        date,
+        kickoff,
+        isHome: b.isHome !== false,
+        location: clip(b.location, 160) || null,
+        except: [user.id],
+      }).catch((e) => ctx.warn('friendly notify failed', e));
     }
 
     return { status: 201, jsonBody: { id, pairedGameId: otherId } };
@@ -1012,6 +1039,492 @@ export async function friendliesHandler(
   }
 }
 
+/* -------------------------------------------------------- friendly games */
+
+interface FriendlyGameInput {
+  teamId: string;
+  opponentTeam: { id: string; name: string } | null;
+  opponent: string;
+  date: string;
+  kickoff: string | null;
+  isHome: boolean;
+  location: string | null;
+  field: string | null;
+  regular: boolean;
+  assistantFree: boolean;
+  competitionId: string | null;
+}
+
+type TeamSetupRow = {
+  name: string;
+  format: string | null;
+  periods: string | null;
+  period_length_sec: number | null;
+  default_formation: string | null;
+};
+
+/**
+ * Writes a team's own game. Against another Lineup team the same friendly
+ * goes on that team's calendar too, from their side, paired (Fady, 10/19).
+ */
+async function insertFriendlyGames(c: PoolClient, p: FriendlyGameInput): Promise<{ id: string; otherId: string | null }> {
+  await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [p.teamId]);
+  const team = (
+    await c.query<TeamSetupRow>(
+      'SELECT name, format, periods, period_length_sec, default_formation FROM team WHERE id = $1',
+      [p.teamId],
+    )
+  ).rows[0];
+  const format = team?.format ?? '7v7';
+  const pairId = p.opponentTeam ? randomUUID() : null;
+  const r = await c.query<{ id: string }>(
+    `INSERT INTO game (team_id, game_no, date, opponent, is_home, format, periods,
+                       period_length_sec, formation, kickoff, location, field, is_friendly, assistant_free, competition_id,
+                       pair_id, opponent_team_id)
+     VALUES ($1, (SELECT COALESCE(MAX(game_no), 0) + 1 FROM game WHERE team_id = $1),
+             $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+     RETURNING id`,
+    [
+      p.teamId, p.date, p.opponent.slice(0, 80), p.isHome, format,
+      team?.periods ?? 'quarters', team?.period_length_sec ?? 720,
+      defaultFormation(format, team?.default_formation ?? null),
+      p.kickoff, p.location, p.field, !p.regular, p.assistantFree, p.competitionId,
+      pairId, p.opponentTeam?.id ?? null,
+    ],
+  );
+  if (!p.opponentTeam) return { id: r.rows[0].id, otherId: null };
+  await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [p.opponentTeam.id]);
+  const t2 = (
+    await c.query<TeamSetupRow>(
+      'SELECT name, format, periods, period_length_sec, default_formation FROM team WHERE id = $1',
+      [p.opponentTeam.id],
+    )
+  ).rows[0];
+  const f2 = t2?.format ?? format;
+  const o = await c.query<{ id: string }>(
+    `INSERT INTO game (team_id, game_no, date, opponent, is_home, format, periods,
+                       period_length_sec, formation, kickoff, location, field, is_friendly, pair_id, opponent_team_id)
+     VALUES ($1, (SELECT COALESCE(MAX(game_no), 0) + 1 FROM game WHERE team_id = $1),
+             $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12, $13)
+     RETURNING id`,
+    [
+      p.opponentTeam.id, p.date, (team?.name ?? 'Team').slice(0, 80), !p.isHome, f2,
+      t2?.periods ?? 'quarters', t2?.period_length_sec ?? 720,
+      defaultFormation(f2, t2?.default_formation ?? null),
+      p.kickoff, p.location, p.field, pairId, p.teamId,
+    ],
+  );
+  return { id: r.rows[0].id, otherId: o.rows[0].id };
+}
+
+/** The other team's coaches, assistants, team parents and parents hear about a new friendly. */
+async function notifyNewFriendly(p: {
+  teamId: string;
+  opponentTeam: { id: string; name: string };
+  otherId: string;
+  date: string;
+  kickoff: string | null;
+  isHome: boolean;
+  location: string | null;
+  except: string[];
+}) {
+  const ownName = (await queryOne<{ name: string }>('SELECT name FROM team WHERE id = $1', [p.teamId]))?.name ?? 'Team';
+  const match = p.isHome ? `${ownName} v ${p.opponentTeam.name}` : `${p.opponentTeam.name} v ${ownName}`;
+  await query(
+    `INSERT INTO notification (user_id, kind, title, body, link)
+     SELECT DISTINCT m.user_id, 'message', $3, $4, $5
+       FROM membership m WHERE m.team_id = $1 AND NOT (m.user_id = ANY($2::uuid[]))`,
+    [
+      p.opponentTeam.id,
+      p.except,
+      `New friendly: ${match}`,
+      `${prettyDay(p.date)}${p.kickoff ? ` at ${p.kickoff}` : ''}${p.location ? `, ${p.location}` : ''}. It's on your team's calendar; let the coach know if you're going.`,
+      calendarLink(p.opponentTeam.id, `game:${p.otherId}`),
+    ],
+  );
+}
+
+/* ----------------------------------------------------- friendly requests */
+
+/** An approved friendly: both teams' people are told, each with a link to their own game. */
+async function notifyBothTeams(
+  a: { id: string; name: string },
+  b: { id: string; name: string },
+  game: { id: string; otherId: string | null },
+  f: { date: string; kickoff: string | null; isHome: boolean; location: string | null },
+  except: string[],
+) {
+  if (!game.otherId) return;
+  await notifyNewFriendly({ teamId: a.id, opponentTeam: b, otherId: game.otherId, ...f, except });
+  await notifyNewFriendly({ teamId: b.id, opponentTeam: a, otherId: game.id, ...f, isHome: !f.isHome, except });
+}
+
+type RequestTeam = ScopeTeam & { org_name: string };
+const REQUEST_TEAM_SQL = `SELECT ${TEAM_COLUMNS}, o.name AS org_name ${TEAM_JOINS} WHERE t.id = $1`;
+
+interface FriendlyOk {
+  team_ok_by: string | null;
+  opponent_ok_by: string | null;
+  org_ok_by: string | null;
+}
+
+/**
+ * Who approves a friendly between two teams of one organization (Shadi,
+ * 10/20): in one region, its staff (region admins, directors and schedulers,
+ * or the organization's); across two regions, both regions' staff, or the
+ * organization's staff alone.
+ */
+function approvalRights(access: AccessContext, a: ScopeTeam, b: ScopeTeam) {
+  const side = (t: ScopeTeam) => canOnScope(access, { orgId: t.org_id, regionId: t.region_id }, 'fixture.schedule').allowed;
+  return {
+    org: !a.org_personal && canOnScope(access, { orgId: a.org_id }, 'fixture.schedule').allowed,
+    team: side(a),
+    opponent: side(b),
+  };
+}
+
+function friendlyApproved(ok: FriendlyOk, a: ScopeTeam, b: ScopeTeam): boolean {
+  if (ok.org_ok_by) return true;
+  if (a.region_id === b.region_id) return Boolean(ok.team_ok_by || ok.opponent_ok_by);
+  return Boolean(ok.team_ok_by && ok.opponent_ok_by);
+}
+
+/** Who still has to say yes, in words. */
+function waitingFor(ok: FriendlyOk, a: RequestTeam, b: RequestTeam): string {
+  const place = (t: RequestTeam) => (t.region_id && t.region_name ? t.region_name : t.org_name);
+  if (a.region_id === b.region_id) return place(a);
+  const missing = [!ok.team_ok_by ? place(a) : null, !ok.opponent_ok_by ? place(b) : null].filter(Boolean) as string[];
+  return a.org_personal ? missing.join(' and ') : `${missing.join(' and ')}, or ${a.org_name}`;
+}
+
+function canApproveNow(rights: ReturnType<typeof approvalRights>, ok: FriendlyOk): boolean {
+  return rights.org || (rights.team && !ok.team_ok_by) || (rights.opponent && !ok.opponent_ok_by);
+}
+
+/** Tells the staff who still have to approve; each gets a link to their own Games tab. */
+async function notifyFriendlyApprovers(
+  ok: FriendlyOk,
+  a: RequestTeam,
+  b: RequestTeam,
+  isHome: boolean,
+  date: string,
+  kickoff: string | null,
+  except: string,
+) {
+  const regions: string[] = [];
+  if (a.region_id === b.region_id) {
+    if (a.region_id) regions.push(a.region_id);
+  } else {
+    if (!ok.team_ok_by && a.region_id) regions.push(a.region_id);
+    if (!ok.opponent_ok_by && b.region_id) regions.push(b.region_id);
+  }
+  const match = isHome ? `${a.name} v ${b.name}` : `${b.name} v ${a.name}`;
+  await query(
+    `INSERT INTO notification (user_id, kind, title, body, link)
+     SELECT DISTINCT ON (m.user_id) m.user_id, 'message', $3, $4,
+            CASE WHEN m.region_id IS NOT NULL THEN '/seasons?region=' || m.region_id::text
+                 ELSE '/seasons?org=' || m.org_id::text END
+       FROM membership m
+      WHERE m.user_id <> $1 AND m.role IN ('org_admin', 'director', 'region_admin', 'scheduler')
+        AND (m.region_id = ANY($2::uuid[]) OR ($5::boolean AND m.org_id = $6::uuid))
+      ORDER BY m.user_id, (m.region_id IS NULL)`,
+    [
+      except,
+      regions,
+      `Friendly request: ${match}`,
+      `${a.name} would like to play a friendly on ${prettyDay(date)}${kickoff ? ` at ${kickoff}` : ''}. Approve or decline it under Games › Friendly requests.`,
+      !a.org_personal,
+      a.org_id,
+    ],
+  );
+}
+
+/** A league team's friendly: a request, or straight onto both calendars when the requester may approve it. */
+async function requestFriendly(
+  access: AccessContext,
+  userId: string,
+  home: ScopeTeam,
+  opponentTeam: { id: string; name: string },
+  f: { date: string; kickoff: string | null; isHome: boolean; location: string; field: string | null; assistantFree: boolean },
+  ctx: InvocationContext,
+): Promise<HttpResponseInit> {
+  const [a, b] = await Promise.all([
+    queryOne<RequestTeam>(REQUEST_TEAM_SQL, [home.id]),
+    queryOne<RequestTeam>(REQUEST_TEAM_SQL, [opponentTeam.id]),
+  ]);
+  if (!a || !b || a.org_id !== b.org_id || isStandaloneTeam(b)) {
+    return { status: 400, jsonBody: { error: 'Pick a team from your region or organization.', code: 'OPPONENT_NOT_ALLOWED' } };
+  }
+  const rights = approvalRights(access, a, b);
+  const ok: FriendlyOk = {
+    org_ok_by: rights.org ? userId : null,
+    team_ok_by: !rights.org && rights.team ? userId : null,
+    opponent_ok_by: !rights.org && rights.opponent ? userId : null,
+  };
+  const approved = friendlyApproved(ok, a, b);
+  const out = await transaction(async (c) => {
+    const r = await c.query<{ id: string }>(
+      `INSERT INTO friendly_request (team_id, opponent_team_id, requested_by, date, kickoff, is_home, location, field,
+                                     assistant_free, status, team_ok_by, opponent_ok_by, org_ok_by, decided_by, decided_at)
+       VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       RETURNING id`,
+      [
+        a.id, b.id, userId, f.date, f.kickoff, f.isHome, f.location, f.field, f.assistantFree,
+        approved ? 'approved' : 'pending', ok.team_ok_by, ok.opponent_ok_by, ok.org_ok_by,
+        approved ? userId : null, approved ? new Date() : null,
+      ],
+    );
+    const requestId = r.rows[0].id;
+    if (!approved) return { requestId, game: null };
+    const game = await insertFriendlyGames(c, {
+      teamId: a.id, opponentTeam, opponent: b.name, date: f.date, kickoff: f.kickoff, isHome: f.isHome,
+      location: f.location, field: f.field, regular: false, assistantFree: f.assistantFree, competitionId: null,
+    });
+    await c.query('UPDATE friendly_request SET game_id = $2 WHERE id = $1', [requestId, game.id]);
+    return { requestId, game };
+  });
+  if (out.game) {
+    // Staff added it: both teams hear about it (a coach's own team already knows).
+    await notifyBothTeams(a, b, out.game, f, [userId]).catch((e) => ctx.warn('friendly notify failed', e));
+    return { status: 201, jsonBody: { id: out.game.id, pairedGameId: out.game.otherId, requestId: out.requestId, status: 'approved' } };
+  }
+  await notifyFriendlyApprovers(ok, a, b, f.isHome, f.date, f.kickoff, userId).catch((e) =>
+    ctx.warn('friendly request notify failed', e),
+  );
+  return {
+    status: 202,
+    jsonBody: { requestId: out.requestId, status: 'pending', waitingFor: waitingFor(ok, a, b) },
+  };
+}
+
+interface FriendlyRequestRow extends FriendlyOk {
+  id: string;
+  team_id: string;
+  opponent_team_id: string;
+  requested_by: string | null;
+  requested_by_name: string | null;
+  day: string;
+  kickoff: string;
+  is_home: boolean;
+  location: string;
+  field: string | null;
+  assistant_free: boolean;
+  status: 'pending' | 'approved' | 'declined' | 'cancelled';
+  decline_reason: string | null;
+  game_id: string | null;
+  created_at: string;
+}
+
+const REQUEST_SELECT = `SELECT fr.id, fr.team_id, fr.opponent_team_id, fr.requested_by, u.display_name AS requested_by_name,
+         to_char(fr.date, 'YYYY-MM-DD') AS day, fr.kickoff, fr.is_home, fr.location, fr.field, fr.assistant_free,
+         fr.status, fr.team_ok_by, fr.opponent_ok_by, fr.org_ok_by, fr.decline_reason, fr.game_id, fr.created_at
+    FROM friendly_request fr
+    JOIN team ta ON ta.id = fr.team_id
+    JOIN team tb ON tb.id = fr.opponent_team_id
+    LEFT JOIN app_user u ON u.id = fr.requested_by`;
+
+/**
+ * Friendly requests: a team's (its calendar), or a region's or
+ * organization's for its staff to approve (its Games tab). POST approves,
+ * declines or cancels one.
+ */
+export async function friendlyRequestsHandler(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
+  try {
+    const user = await requireUser(req);
+    if (!user) return { status: 401, jsonBody: { error: 'Not authenticated' } };
+
+    if (req.method === 'GET') {
+      const teamId = clip(req.query.get('teamId'), 40);
+      const scope = req.query.get('scope');
+      const id = clip(req.query.get('id'), 40);
+      let access: AccessContext;
+      let where: string;
+      let param: string;
+      if (teamId) {
+        const guard = await guardTeam(user, teamId, 'game.view');
+        if (!guard.ok) return guard.response;
+        access = guard.ctx;
+        where = '(fr.team_id = $1 OR fr.opponent_team_id = $1)';
+        param = teamId;
+      } else if (scope === 'region' && id) {
+        access = await buildAccessContext(user);
+        const r = await queryOne<{ id: string; org_id: string }>('SELECT id, org_id FROM region WHERE id = $1 AND deleted_at IS NULL', [id]);
+        if (!r || !canOnScope(access, { orgId: r.org_id, regionId: r.id }, 'fixture.schedule').allowed) return FORBIDDEN;
+        where = '(ta.region_id = $1 OR tb.region_id = $1)';
+        param = r.id;
+      } else if (scope === 'org' && id) {
+        access = await buildAccessContext(user);
+        const o = await queryOne<{ id: string }>('SELECT id FROM organization WHERE id = $1 AND deleted_at IS NULL', [id]);
+        if (!o || !canOnScope(access, { orgId: o.id }, 'fixture.schedule').allowed) return FORBIDDEN;
+        where = 'ta.org_id = $1';
+        param = o.id;
+      } else {
+        return { status: 400, jsonBody: { error: 'teamId, or scope and id, are required' } };
+      }
+      const rows = await query<FriendlyRequestRow>(
+        `${REQUEST_SELECT}
+          WHERE ${where} AND ta.deleted_at IS NULL AND tb.deleted_at IS NULL
+            AND (fr.status = 'pending' OR fr.created_at > now() - interval '30 days')
+          ORDER BY (fr.status = 'pending') DESC, fr.date, fr.created_at DESC
+          LIMIT 100`,
+        [param],
+      );
+      const teamIds = [...new Set(rows.flatMap((r) => [r.team_id, r.opponent_team_id]))];
+      const teams = teamIds.length
+        ? await query<RequestTeam>(`SELECT ${TEAM_COLUMNS}, o.name AS org_name ${TEAM_JOINS} WHERE t.id = ANY($1::uuid[])`, [teamIds])
+        : [];
+      const byId = new Map(teams.map((t) => [t.id, t]));
+      const requests = rows.flatMap((r) => {
+        const a = byId.get(r.team_id);
+        const b = byId.get(r.opponent_team_id);
+        if (!a || !b) return [];
+        const rights = approvalRights(access, a, b);
+        const pending = r.status === 'pending';
+        const label = (t: RequestTeam) => (t.region_id && t.region_name && t.region_personal === false ? t.region_name : null);
+        return [
+          {
+            id: r.id,
+            teamId: a.id,
+            teamName: a.name,
+            teamRegion: label(a),
+            opponentTeamId: b.id,
+            opponentName: b.name,
+            opponentRegion: label(b),
+            date: r.day,
+            kickoff: r.kickoff,
+            isHome: r.is_home,
+            location: r.location,
+            field: r.field,
+            status: r.status,
+            requestedBy: r.requested_by_name,
+            waitingFor: pending ? waitingFor(r, a, b) : null,
+            declineReason: r.decline_reason,
+            gameId: r.game_id,
+            canApprove: pending && canApproveNow(rights, r),
+            canCancel:
+              pending &&
+              (r.requested_by === user.id ||
+                canOnTeam(access, { teamId: a.id, orgId: a.org_id, regionId: a.region_id, divisionId: a.division_id }, 'game.create').allowed),
+          },
+        ];
+      });
+      return { status: 200, jsonBody: { requests } };
+    }
+
+    const body = (await req.json()) as { action?: string; id?: string; reason?: string };
+    const id = clip(body.id, 40);
+    const found = await queryOne<FriendlyRequestRow>(`${REQUEST_SELECT} WHERE fr.id = $1`, [id]);
+    if (!found) return FORBIDDEN;
+    const [a, b] = await Promise.all([
+      queryOne<RequestTeam>(REQUEST_TEAM_SQL, [found.team_id]),
+      queryOne<RequestTeam>(REQUEST_TEAM_SQL, [found.opponent_team_id]),
+    ]);
+    if (!a || !b) return FORBIDDEN;
+    const access = await buildAccessContext(user);
+    const match = found.is_home ? `${a.name} v ${b.name}` : `${b.name} v ${a.name}`;
+    const decided = { status: 409, jsonBody: { error: 'This request has already been decided.', code: 'DECIDED' } };
+
+    if (body.action === 'cancel') {
+      const may =
+        found.requested_by === user.id ||
+        canOnTeam(access, { teamId: a.id, orgId: a.org_id, regionId: a.region_id, divisionId: a.division_id }, 'game.create').allowed;
+      if (!may) return FORBIDDEN;
+      const done = await query(
+        `UPDATE friendly_request SET status = 'cancelled', decided_by = $2, decided_at = now()
+          WHERE id = $1 AND status = 'pending' RETURNING id`,
+        [id, user.id],
+      );
+      return done.length ? { status: 200, jsonBody: { status: 'cancelled' } } : decided;
+    }
+
+    const rights = approvalRights(access, a, b);
+    if (!rights.org && !rights.team && !rights.opponent) return FORBIDDEN;
+
+    if (body.action === 'decline') {
+      const reason = clip(body.reason, 300) || null;
+      const done = await query(
+        `UPDATE friendly_request SET status = 'declined', decided_by = $2, decided_at = now(), decline_reason = $3
+          WHERE id = $1 AND status = 'pending' RETURNING id`,
+        [id, user.id, reason],
+      );
+      if (!done.length) return decided;
+      if (found.requested_by && found.requested_by !== user.id) {
+        await query(
+          `INSERT INTO notification (user_id, kind, title, body, link) VALUES ($1, 'message', $2, $3, $4)`,
+          [
+            found.requested_by,
+            `Friendly not approved: ${match}`,
+            `${prettyDay(found.day)}${reason ? `. ${reason}` : '. Ask your region if you would like to know why.'}`,
+            calendarLink(a.id),
+          ],
+        ).catch((e) => ctx.warn('friendly decline notify failed', e));
+      }
+      return { status: 200, jsonBody: { status: 'declined' } };
+    }
+
+    if (body.action !== 'approve') return { status: 400, jsonBody: { error: 'Unknown action' } };
+    const out = await transaction(async (c) => {
+      const cur = (
+        await c.query<FriendlyRequestRow>(
+          `SELECT id, status, team_ok_by, opponent_ok_by, org_ok_by FROM friendly_request WHERE id = $1 FOR UPDATE`,
+          [id],
+        )
+      ).rows[0];
+      if (!cur || cur.status !== 'pending') return null;
+      const ok: FriendlyOk = {
+        org_ok_by: cur.org_ok_by ?? (rights.org ? user.id : null),
+        team_ok_by: cur.team_ok_by ?? (!rights.org && rights.team ? user.id : null),
+        opponent_ok_by: cur.opponent_ok_by ?? (!rights.org && rights.opponent ? user.id : null),
+      };
+      const approved = friendlyApproved(ok, a, b);
+      const game = approved
+        ? await insertFriendlyGames(c, {
+            teamId: a.id, opponentTeam: { id: b.id, name: b.name }, opponent: b.name, date: found.day,
+            kickoff: found.kickoff, isHome: found.is_home, location: found.location, field: found.field,
+            regular: false, assistantFree: found.assistant_free, competitionId: null,
+          })
+        : null;
+      await c.query(
+        `UPDATE friendly_request
+            SET team_ok_by = $2, opponent_ok_by = $3, org_ok_by = $4, status = $5,
+                decided_by = $6, decided_at = CASE WHEN $5 = 'approved' THEN now() END, game_id = $7
+          WHERE id = $1`,
+        [id, ok.team_ok_by, ok.opponent_ok_by, ok.org_ok_by, approved ? 'approved' : 'pending', approved ? user.id : null, game?.id ?? null],
+      );
+      return { ok, game };
+    });
+    if (!out) return decided;
+    if (out.game) {
+      await notifyBothTeams(
+        a,
+        b,
+        out.game,
+        { date: found.day, kickoff: found.kickoff, isHome: found.is_home, location: found.location },
+        [user.id, ...(found.requested_by ? [found.requested_by] : [])],
+      ).catch((e) => ctx.warn('friendly notify failed', e));
+      if (found.requested_by && found.requested_by !== user.id) {
+        await query(
+          `INSERT INTO notification (user_id, kind, title, body, link) VALUES ($1, 'message', $2, $3, $4)`,
+          [
+            found.requested_by,
+            `Friendly approved: ${match}`,
+            `${prettyDay(found.day)} at ${found.kickoff}, ${found.location}. It's on both teams' calendars.`,
+            calendarLink(a.id, `game:${out.game.id}`),
+          ],
+        ).catch((e) => ctx.warn('friendly approve notify failed', e));
+      }
+      return { status: 200, jsonBody: { status: 'approved', gameId: out.game.id } };
+    }
+    // One region said yes; the other region (or the organization) is told it is their turn.
+    await notifyFriendlyApprovers(out.ok, a, b, found.is_home, found.day, found.kickoff, user.id).catch((e) =>
+      ctx.warn('friendly request notify failed', e),
+    );
+    return { status: 200, jsonBody: { status: 'pending', waitingFor: waitingFor(out.ok, a, b) } };
+  } catch (err) {
+    ctx.error('friendly requests failed', err);
+    return { status: 500, jsonBody: { error: 'Internal error' } };
+  }
+}
 /* ------------------------------------------------------------------ logos */
 
 const MAX_LOGO_BYTES = 200 * 1024;
@@ -1136,6 +1649,9 @@ app.http('gameCancel', {
 });
 app.http('calendar', {
   methods: ['GET'], authLevel: 'anonymous', route: 'calendar', handler: calendarHandler,
+});
+app.http('friendlyRequests', {
+  methods: ['GET', 'POST'], authLevel: 'anonymous', route: 'friendly-requests', handler: friendlyRequestsHandler,
 });
 app.http('fixtures', {
   methods: ['POST', 'PATCH', 'DELETE'], authLevel: 'anonymous', route: 'fixtures',
