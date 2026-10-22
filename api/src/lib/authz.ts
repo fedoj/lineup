@@ -10,6 +10,7 @@ import type { HttpResponseInit } from '@azure/functions';
 import {
   canOnTeam,
   canManageScope,
+  customRoleActions,
   visiblePlayerIds,
   type AccessContext,
   type Action,
@@ -41,26 +42,65 @@ export function loadMemberships(userId: string): Promise<Membership[]> {
   return memo(`mem:${userId}`, () => readMemberships(userId));
 }
 
+/**
+ * Teams each custom role held by user $1 covers: its single teams plus every
+ * team in its age groups, inside the role's organization or region. Roles
+ * in a paused organization or region cover nothing.
+ */
+const CUSTOM_ROLE_TEAMS_SQL = `
+  SELECT t.id AS team_id, cr.id AS custom_role_id, cr.name, cr.permissions
+    FROM custom_role_member cm
+    JOIN custom_role cr ON cr.id = cm.custom_role_id AND cr.deleted_at IS NULL
+    JOIN team t ON t.deleted_at IS NULL
+     AND (CASE WHEN cr.region_id IS NULL THEN t.org_id = cr.org_id ELSE t.region_id = cr.region_id END)
+     AND (t.id = ANY(cr.team_ids)
+          OR COALESCE(t.catalog_division_id,
+                      (SELECT d.code FROM division d WHERE d.id = t.division_id)) = ANY(cr.divisions))
+   WHERE cm.user_id = $1
+     AND NOT EXISTS (SELECT 1 FROM organization o WHERE o.id = cr.org_id AND o.paused_by_trial IS NOT NULL)
+     AND NOT EXISTS (SELECT 1 FROM region r WHERE r.id = cr.region_id AND r.paused_by_trial IS NOT NULL)
+     AND t.paused_by_trial IS NULL`;
+
 async function readMemberships(userId: string): Promise<Membership[]> {
   // Memberships in an organization, region or team paused by a lapsed free
   // trial grant nothing until a subscription restores it.
-  const rows = await query<MembershipRow>(
-    `SELECT m.role, m.org_id, m.region_id, m.division_id, m.team_id
-       FROM membership m
-      WHERE m.user_id = $1
-        AND NOT EXISTS (SELECT 1 FROM organization o WHERE o.id = m.org_id AND o.paused_by_trial IS NOT NULL)
-        AND NOT EXISTS (SELECT 1 FROM region r WHERE r.id = m.region_id AND r.paused_by_trial IS NOT NULL)
-        AND NOT EXISTS (SELECT 1 FROM team t WHERE t.id = m.team_id AND t.paused_by_trial IS NOT NULL)`,
-    [userId],
-  );
-  return rows.map((r) => ({
-    userId,
-    role: r.role as Role,
-    orgId: r.org_id,
-    regionId: r.region_id,
-    divisionId: r.division_id,
-    teamId: r.team_id,
-  }));
+  const [rows, custom] = await Promise.all([
+    query<MembershipRow>(
+      `SELECT m.role, m.org_id, m.region_id, m.division_id, m.team_id
+         FROM membership m
+        WHERE m.user_id = $1
+          AND NOT EXISTS (SELECT 1 FROM organization o WHERE o.id = m.org_id AND o.paused_by_trial IS NOT NULL)
+          AND NOT EXISTS (SELECT 1 FROM region r WHERE r.id = m.region_id AND r.paused_by_trial IS NOT NULL)
+          AND NOT EXISTS (SELECT 1 FROM team t WHERE t.id = m.team_id AND t.paused_by_trial IS NOT NULL)`,
+      [userId],
+    ),
+    query<{ team_id: string; name: string; permissions: string[] }>(CUSTOM_ROLE_TEAMS_SQL, [userId]),
+  ]);
+  const actionsOf = new Map<string, Action[]>();
+  return [
+    ...rows.map((r) => ({
+      userId,
+      role: r.role as Role,
+      orgId: r.org_id,
+      regionId: r.region_id,
+      divisionId: r.division_id,
+      teamId: r.team_id,
+    })),
+    // A custom role becomes one team-level membership per team it covers,
+    // carrying exactly the actions its permissions grant.
+    ...custom.map((c) => {
+      const key = [...c.permissions].sort().join(',');
+      let actions = actionsOf.get(key);
+      if (!actions) actionsOf.set(key, (actions = customRoleActions(c.permissions)));
+      return {
+        userId,
+        role: 'custom' as Role,
+        teamId: c.team_id,
+        actions,
+        customRoleName: c.name,
+      };
+    }),
+  ];
 }
 
 /** Players this user is a parent or guardian of. */
@@ -119,7 +159,7 @@ async function readAccessContext(user: AuthedUser): Promise<AccessContext> {
   // deliberately does not add memberships, so assuming org_admin shows you
   // that surface over your own teams and never reaches anyone else's data.
   const effectiveMemberships = impersonation.role
-    ? memberships.map((m) => ({ ...m, role: impersonation.role as Role }))
+    ? memberships.map((m) => ({ ...m, role: impersonation.role as Role, actions: undefined }))
     : memberships;
 
   return {
@@ -281,7 +321,8 @@ export const REACHABLE_TEAM_IDS_SQL = `
   UNION SELECT team_id FROM membership WHERE user_id = $1 AND team_id IS NOT NULL
   UNION SELECT t.id FROM membership m JOIN team t ON t.division_id = m.division_id WHERE m.user_id = $1
   UNION SELECT t.id FROM membership m JOIN team t ON t.region_id = m.region_id WHERE m.user_id = $1
-  UNION SELECT t.id FROM membership m JOIN team t ON t.org_id = m.org_id WHERE m.user_id = $1`;
+  UNION SELECT t.id FROM membership m JOIN team t ON t.org_id = m.org_id WHERE m.user_id = $1
+  UNION SELECT team_id FROM (${CUSTOM_ROLE_TEAMS_SQL}) crt`;
 
 /** Team ids the caller can reach, for list endpoints. */
 export function reachableTeamIds(userId: string): Promise<string[]> {

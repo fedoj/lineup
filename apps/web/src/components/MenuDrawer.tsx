@@ -275,12 +275,14 @@ export default function MenuDrawer({
               <>
                 {top}
                 {looseTeams.map((t) => renderNode({ kind: 'team', id: t.id, name: t.name, logo: t.logo, level: 0 }))}
+                {/* A new team is one of your own teams, so it is added here (Shadi, 10/20). */}
+                {newTeam}
               </>
             )}
           </>
         )}
 
-        {newTeam}
+        {looseTeams.length === 0 && newTeam}
 
         {archivedTeams.length > 0 && (
           <>

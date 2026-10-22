@@ -4,6 +4,8 @@ import {
   FORMATS,
   FORMAT_IDS,
   formationNames,
+  isTeamAgeGroup,
+  TEAM_TYPE_SUGGESTIONS,
   type Format,
   type Player,
   type Role,
@@ -117,6 +119,14 @@ export default function TeamSetup({
           <dd>{team.periods === 'halves' ? 'Halves' : 'Quarters'}</dd>
           <dt>Coach</dt>
           <dd>{team.coach || '—'}</dd>
+          <dt>Team type</dt>
+          <dd>
+            {canEdit ? (
+              <TeamTypeEdit team={team} onTeam={onTeam} />
+            ) : (
+              team.teamType || '—'
+            )}
+          </dd>
         </dl>
         <p className="note">
           The division sets the match format for every game on this team.
@@ -135,7 +145,7 @@ export default function TeamSetup({
             <div className="row">
               <select value={divisionDraft} onChange={(e) => setDivisionDraft(e.target.value)}>
                 <option value="">Choose a division…</option>
-                {catalog.map((c) => (
+                {catalog.filter((c) => isTeamAgeGroup(c.ageU)).map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.id} — {c.label} ({c.format})
                   </option>
@@ -717,6 +727,8 @@ export function NewTeam({
 }) {
   const [catalog, setCatalog] = useState<CatalogDivision[]>([]);
   const [name, setName] = useState('');
+  // All Stars, MLS Next 2, NCL… (Shadi, 10/21).
+  const [teamType, setTeamType] = useState('');
   const [regionId, setRegionId] = useState(regions?.[0]?.id ?? '');
   const [gender, setGender] = useState<'boys' | 'girls' | 'coed'>('boys');
   const [divisionId, setDivisionId] = useState('');
@@ -737,7 +749,8 @@ export function NewTeam({
 
   // Splitting by gender keeps the age list short instead of one 48-row menu.
   const ages = useMemo(
-    () => catalog.filter((c) => c.gender === gender).sort((a, b) => a.ageU - b.ageU),
+    // MatchTrak's (AYSO's) age groups only (Shadi, 10/21).
+    () => catalog.filter((c) => c.gender === gender && isTeamAgeGroup(c.ageU)).sort((a, b) => a.ageU - b.ageU),
     [catalog, gender],
   );
 
@@ -770,6 +783,7 @@ export function NewTeam({
     try {
       const t = await api.createTeam({
         name,
+        teamType: teamType.trim() || undefined,
         coach: coach || inviteName,
         catalogDivisionId: divisionId,
         ageGroup: chosen?.label ?? '',
@@ -814,6 +828,18 @@ export function NewTeam({
       <label>
         Team name
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Blue Thunder" />
+      </label>
+
+      <label>
+        Team type (optional)
+        <input
+          value={teamType}
+          maxLength={30}
+          list="team-types"
+          placeholder="e.g. All Stars, MLS Next 2, NCL"
+          onChange={(e) => setTeamType(e.target.value)}
+        />
+        <TeamTypeOptions />
       </label>
 
       {regions && regions.length > 1 && (
@@ -974,5 +1000,53 @@ export function NewTeam({
         <p className="note">Pick a division to continue — it sets the format for every game.</p>
       )}
     </section>
+  );
+}
+
+/** Suggestions for the team type field; anything else can be typed (Shadi, 10/21). */
+export function TeamTypeOptions() {
+  return (
+    <datalist id="team-types">
+      {TEAM_TYPE_SUGGESTIONS.map((t) => (
+        <option key={t} value={t} />
+      ))}
+    </datalist>
+  );
+}
+
+/** Change a team's type in place: saved when the field loses focus or Enter is pressed. */
+function TeamTypeEdit({ team, onTeam }: { team: Team; onTeam: (t: Team) => void }) {
+  const [value, setValue] = useState(team.teamType ?? '');
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  useEffect(() => setValue(team.teamType ?? ''), [team.teamType]);
+  async function save() {
+    const next = value.trim();
+    if (next === (team.teamType ?? '')) return;
+    setState('saving');
+    try {
+      onTeam(await api.updateTeam({ id: team.id, teamType: next || null }));
+      setState('saved');
+      window.setTimeout(() => setState('idle'), 1500);
+    } catch {
+      setState('error');
+    }
+  }
+  return (
+    <span className="row">
+      <input
+        aria-label="Team type"
+        value={value}
+        maxLength={30}
+        list="team-types"
+        placeholder="e.g. All Stars, MLS Next 2, NCL"
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => void save()}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        }}
+      />
+      <TeamTypeOptions />
+      {state === 'saving' ? <span className="sub">Saving…</span> : state === 'saved' ? <span className="sub">Saved</span> : state === 'error' ? <span className="danger-text">Not saved</span> : null}
+    </span>
   );
 }

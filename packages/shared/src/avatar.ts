@@ -12,7 +12,7 @@ export const AVATAR_OPTIONS = {
   skin: ['s1', 's2', 's3', 's4', 's5', 's6'],
   face: ['oval', 'round', 'square', 'heart'],
   // prettier-ignore
-  hair: ['h01', 'h02', 'h03', 'h04', 'h05', 'h06', 'h07', 'h08', 'h09', 'h10', 'h11', 'h12', 'h13', 'h14', 'h15', 'h16', 'h17', 'h18', 'h19', 'h20', 'h21', 'h22', 'h23', 'h24', 'h25', 'h26', 'h27', 'h28', 'h29', 'h30', 'h31', 'h32', 'h33', 'h34', 'h35', 'h36', 'h37', 'h38', 'h39', 'h40', 'h41', 'h42', 'h43', 'h44', 'h45', 'h46', 'h47', 'h48'],
+  hair: ['h02', 'h03', 'h04', 'h05', 'h06', 'h07', 'h08', 'h09', 'h10', 'h11', 'h12', 'h13', 'h14', 'h15', 'h16', 'h17', 'h18', 'h19', 'h20', 'h21', 'h22', 'h23', 'h24', 'h25', 'h26', 'h27', 'h28', 'h29', 'h30', 'h31', 'h32', 'h33', 'h34', 'h35', 'h36', 'h37', 'h38', 'h39', 'h40', 'h41', 'h42', 'h43', 'h44', 'h45', 'h46', 'h47', 'h48'],
   hairColor: ['black', 'brown', 'blonde', 'red', 'auburn', 'gray', 'blue', 'pink'],
   eyes: ['round', 'almond', 'smile'],
   eyeColor: ['brown', 'blue', 'green', 'hazel', 'gray'],
@@ -20,6 +20,8 @@ export const AVATAR_OPTIONS = {
   /** Girls only (Fady, 10/20): sparkles in the hair, and rosier cheeks. */
   glitter: ['none', 'glitter'],
   cheeks: ['natural', 'rosy'],
+  /** The color of the tee on the card (Shadi, 10/21). */
+  shirt: ['white', 'black', 'gray', 'red', 'orange', 'yellow', 'green', 'teal', 'sky', 'blue', 'navy', 'purple', 'pink'],
 } as const;
 
 export type AvatarPart = keyof typeof AVATAR_OPTIONS;
@@ -36,6 +38,7 @@ export const AVATAR_LABELS: Record<AvatarPart, string> = {
   glasses: 'Glasses',
   glitter: 'Hair glitter',
   cheeks: 'Cheeks',
+  shirt: 'Shirt color',
 };
 
 /** Choices only girls get; a boy's are always the plain ones (Fady, 10/20). */
@@ -51,6 +54,7 @@ export const DEFAULT_AVATAR: Avatar = {
   glasses: 'none',
   glitter: 'none',
   cheeks: 'natural',
+  shirt: 'white',
 };
 
 /** Hairstyles saved before 10/20, by name, and the Lorelei hairstyle closest to each. */
@@ -63,7 +67,30 @@ export const LEGACY_HAIR: Readonly<Record<string, Avatar['hair']>> = {
   afro: 'h24',
   spiky: 'h20',
   bald: 'h25',
+  // The first Lorelei hairstyle was dropped (Shadi, 10/21).
+  h01: 'h02',
 };
+
+/**
+ * Hairstyles by who they suit (Shadi, 10/21): boys pick from short cuts,
+ * girls from longer styles, ponytails and buns. Anyone with no gender on file
+ * sees them all.
+ */
+export const BOY_HAIR: readonly Avatar['hair'][] = [
+  'h02', 'h03', 'h04', 'h05', 'h06', 'h07', 'h08', 'h09', 'h11', 'h12', 'h17', 'h20',
+  'h22', 'h25', 'h27', 'h28', 'h34', 'h36', 'h38', 'h39', 'h43', 'h44', 'h46', 'h47',
+];
+export const GIRL_HAIR: readonly Avatar['hair'][] = [
+  'h10', 'h13', 'h14', 'h15', 'h16', 'h18', 'h19', 'h21', 'h23', 'h24', 'h26', 'h29',
+  'h30', 'h31', 'h32', 'h33', 'h35', 'h37', 'h40', 'h41', 'h42', 'h45', 'h48',
+];
+
+/** The hairstyles to offer a boy, a girl, or anyone (all of them). */
+export function hairChoices(gender?: string | null): readonly Avatar['hair'][] {
+  if (gender === 'boy') return BOY_HAIR;
+  if (gender === 'girl') return GIRL_HAIR;
+  return AVATAR_OPTIONS.hair;
+}
 
 /** The avatar shown until a parent designs one: girls start with long hair and a slimmer face (Fady, 10/20). */
 export function defaultAvatarFor(gender?: string | null): Avatar {

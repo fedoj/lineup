@@ -38,3 +38,7 @@ import './functions/stripe.js';
 import './functions/usage.js';
 import './functions/twoStep.js';
 import './functions/push.js';
+import './functions/announcements.js';
+import './functions/scopeStats.js';
+import './functions/customRoles.js';
+import './functions/groupChats.js';

@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 
 /**
  * A Bible verse at the bottom of every page, a new one each day (Fady,
- * 10/20): love, peace, forgiveness and the fruit of the Spirit, American
- * Standard Version only. Each page shows its own verse, and they all move on
+ * 10/20): love, peace, forgiveness and the fruit of the Spirit, from the World
+ * English Bible (public domain; Shadi, 10/21, in place of the ASV). Each page
+ * shows its own verse, and they all move on
  * each day (Pacific time); everyone sees the same verse on the same page that
  * day. The verses ship with the app and load after the page, so this costs the
  * platform nothing.
@@ -37,7 +38,7 @@ export default function VerseOfTheDay({ page = '' }: { page?: string }) {
   useEffect(() => {
     if (loaded) return;
     let alive = true;
-    void import('../data/asvVerses')
+    void import('../data/webVerses')
       .then(({ default: all }) => {
         list = all;
         if (alive) setLoaded(all);
@@ -53,7 +54,7 @@ export default function VerseOfTheDay({ page = '' }: { page?: string }) {
   return (
     <aside className="verse-of-day" aria-label="Verse of the day">
       <p className="verse-text">“{verse.text}”</p>
-      <p className="verse-ref">{verse.ref} (ASV)</p>
+      <p className="verse-ref">{verse.ref} (WEB)</p>
     </aside>
   );
 }

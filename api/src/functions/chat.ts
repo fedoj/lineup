@@ -19,6 +19,8 @@ import {
   parseChatImage,
   type AccessContext,
   type ChatChannel,
+  findMentions,
+  mentionGroupKey,
   type TeamContext,
 } from '@lineup/shared';
 import { requireUser } from '../lib/auth.js';
@@ -98,6 +100,63 @@ function chatGroupKey(teamId: string, channel: ChatChannel): string {
   return `chat:${teamId}:${channel}`;
 }
 
+/**
+ * The people in a chat, for @mentions (Shadi, 10/21): its team members with a
+ * role in that chat, and staff dropped in.
+ */
+async function chatMembers(teamId: string, channel: ChatChannel): Promise<Array<{ id: string; name: string }>> {
+  const rows = await query<{ id: string; display_name: string | null; email: string | null }>(
+    `SELECT u.id, u.display_name, u.email
+       FROM app_user u
+      WHERE u.id IN (SELECT m.user_id FROM membership m WHERE m.team_id = $1 AND m.role = ANY($3::text[])
+                     UNION SELECT p.user_id FROM chat_presence p WHERE p.team_id = $1 AND p.channel = $2)`,
+    [teamId, channel, rolesInChannel(channel)],
+  );
+  return rows
+    .map((r) => ({ id: r.id, name: personName(r.display_name, r.email) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Staff mention @everyone: coaches, assistants, team parents, and organization or region staff. */
+function canMentionAll(ctx: AccessContext, team: TeamContext): boolean {
+  const ca = chatAccess(ctx, team);
+  if (ca.dropInRole) return true;
+  return membershipsForTeam(ctx.memberships, team).some(
+    (m) => (m.teamId === team.teamId || (m.divisionId && m.divisionId === team.divisionId)) && ['coach', 'assistant', 'team_parent'].includes(m.role),
+  );
+}
+
+/**
+ * Tell the people @mentioned in a message, or everyone for @everyone. One
+ * unread notification per person and chat, like messages; it is pushed even
+ * to people who only want mentions.
+ */
+async function notifyMentions(
+  teamId: string,
+  channel: ChatChannel,
+  senderId: string,
+  senderName: string,
+  preview: string,
+  targets: string[] | 'all',
+) {
+  const info = await queryOne<{ name: string }>('SELECT name FROM team WHERE id = $1', [teamId]);
+  const where = channel === 'all' ? info?.name ?? 'Team chat' : `${info?.name ?? 'Team'} · ${CHAT_CHANNEL_LABEL[channel]}`;
+  const text = preview.replace(/\s+/g, ' ').trim();
+  const body = text.length > 120 ? `${text.slice(0, 117)}…` : text;
+  const title = targets === 'all' ? `${senderName} to everyone in ${where}` : `${senderName} mentioned you in ${where}`;
+  const ids = targets === 'all' ? (await chatMembers(teamId, channel)).map((m) => m.id) : targets;
+  const to = ids.filter((id) => id !== senderId);
+  if (!to.length) return;
+  await query(
+    `INSERT INTO notification (user_id, kind, title, body, link, group_key, from_name)
+     SELECT u, 'message', $2, $3, $4, $5, $6 FROM unnest($1::uuid[]) AS u
+     ON CONFLICT (user_id, group_key) WHERE read_at IS NULL AND group_key IS NOT NULL
+     DO UPDATE SET batch = notification.batch + 1, title = EXCLUDED.title, body = EXCLUDED.body,
+                   from_name = EXCLUDED.from_name, created_at = now(), pushed_at = NULL`,
+    [to, title, body, chatLink(teamId, channel), mentionGroupKey(teamId, channel), senderName],
+  );
+}
+
 /** Roles that belong to a chat (organization and region staff only while dropped in). */
 function rolesInChannel(channel: ChatChannel): string[] {
   return ['coach', 'assistant', 'team_parent', 'parent'].filter((r) => chatChannelsForRole(r).includes(channel));
@@ -111,7 +170,15 @@ function rolesInChannel(channel: ChatChannel): string[] {
  * unread instead of adding another, so a busy chat never fills the bell.
  * Opening the chat marks it read.
  */
-async function notifyChat(teamId: string, channel: ChatChannel, senderId: string, senderName: string, preview: string) {
+async function notifyChat(
+  teamId: string,
+  channel: ChatChannel,
+  senderId: string,
+  senderName: string,
+  preview: string,
+  /** People told by an @mention instead. */
+  skip: string[] = [],
+) {
   const info = await queryOne<{ name: string; kids: string | null; role: string | null }>(
     `SELECT t.name,
             (SELECT string_agg(split_part(p.name, ' ', 1), ' & ' ORDER BY p.name)
@@ -131,7 +198,7 @@ async function notifyChat(teamId: string, channel: ChatChannel, senderId: string
        SELECT DISTINCT u.user_id
          FROM (SELECT m.user_id FROM membership m WHERE m.team_id = $1 AND m.role = ANY($3::text[])
                UNION SELECT p.user_id FROM chat_presence p WHERE p.team_id = $1 AND p.channel = $2) u
-        WHERE u.user_id <> $8
+        WHERE u.user_id <> $8 AND NOT (u.user_id = ANY($11::uuid[]))
      ),
      latest AS (
        SELECT DISTINCT ON (n.user_id) n.id, n.user_id, n.read_at
@@ -170,12 +237,15 @@ async function notifyChat(teamId: string, channel: ChatChannel, senderId: string
       senderId,
       senderName,
       detail,
+      skip,
     ],
   );
 }
 
 interface MessageRow {
   id: string;
+  mentions: Array<{ id: string; name: string }> | null;
+  mention_all: boolean;
   user_id: string | null;
   kind: 'message' | 'system' | 'poll';
   body: string;
@@ -245,7 +315,7 @@ export async function chatHandler(req: HttpRequest, ctx: InvocationContext): Pro
         featureEnabled(user.id, 'chatPolls'),
         featureEnabled(user.id, 'chatAttachments'),
         query<MessageRow>(
-          `SELECT m.id, m.user_id, m.kind, m.body, (m.image_mime IS NOT NULL) AS has_image,
+          `SELECT m.id, m.user_id, m.kind, m.body, (m.image_mime IS NOT NULL) AS has_image, m.mentions, m.mention_all,
                   m.reply_to, m.created_at, m.edited_at,
                   u.display_name, u.email,
                   COALESCE(
@@ -281,9 +351,9 @@ export async function chatHandler(req: HttpRequest, ctx: InvocationContext): Pro
 
       // Reading the chat clears its notification in the bell (beside the reads below).
       if (canRead) {
-        void query('UPDATE notification SET read_at = now() WHERE user_id = $1 AND group_key = $2 AND read_at IS NULL', [
+        void query('UPDATE notification SET read_at = now() WHERE user_id = $1 AND group_key = ANY($2::text[]) AND read_at IS NULL', [
           user.id,
-          chatGroupKey(team.teamId, channel),
+          [chatGroupKey(team.teamId, channel), mentionGroupKey(team.teamId, channel)],
         ]).catch(() => undefined);
       }
       let messages: unknown[] = [];
@@ -362,6 +432,9 @@ export async function chatHandler(req: HttpRequest, ctx: InvocationContext): Pro
             child: r.user_id ? kidsOf.get(r.user_id) ?? null : null,
             role: r.role ? ROLE_LABEL[r.role] ?? r.role : null,
             body: r.body,
+            // Names to highlight as @mentions.
+            mentions: Array.isArray(r.mentions) ? r.mentions.map((x) => x.name) : [],
+            mentionAll: r.mention_all,
             image: r.has_image ? { url: imageUrl(r.id) } : null,
             createdAt: r.created_at.toISOString(),
             editedAt: r.edited_at ? r.edited_at.toISOString() : null,
@@ -407,6 +480,9 @@ export async function chatHandler(req: HttpRequest, ctx: InvocationContext): Pro
           retentionDays: CHAT_RETENTION_DAYS,
           maxLength: CHAT_MAX_LENGTH,
           reactions: CHAT_REACTIONS,
+          // Who can be @mentioned here, and whether the caller can mention @everyone.
+          members: canRead ? (await chatMembers(team.teamId, channel)).filter((m) => m.id !== user.id) : [],
+          canMentionAll: canMentionAll(access, team),
           visitors: visitors.map((v) => ({
             name: personName(v.display_name, v.email),
             role: v.role ? ROLE_LABEL[v.role] ?? v.role : 'Lineup support',
@@ -556,13 +632,20 @@ export async function chatHandler(req: HttpRequest, ctx: InvocationContext): Pro
         );
         replyTo = parent?.id ?? null;
       }
+      // @mentions (Shadi, 10/21): people in this chat named as "@Name", and
+      // "@everyone" from staff. They are told by a mention instead.
+      const members = body ? (await chatMembers(team.teamId, channel)).filter((m) => m.id !== user.id) : [];
+      const found = findMentions(body, members, canMentionAll(access, team));
+      const mentioned = members.filter((m) => found.ids.includes(m.id));
       // One statement for all of them; a millisecond apart so they keep their order.
       const parts = images.length ? images : [null];
       const rows = await query<{ id: string }>(
-        `INSERT INTO chat_message (team_id, channel, user_id, body, reply_to, image_mime, image_data, created_at)
+        `INSERT INTO chat_message (team_id, channel, user_id, body, reply_to, image_mime, image_data, created_at,
+                                   mentions, mention_all)
          SELECT $1, $2, $3, CASE WHEN i = 1 THEN $4 ELSE '' END, CASE WHEN i = 1 THEN $5::uuid END,
                 (m.mimes)[i], decode((m.datas)[i], 'base64'),
-                clock_timestamp() + make_interval(secs => (i - 1) * 0.001)
+                clock_timestamp() + make_interval(secs => (i - 1) * 0.001),
+                CASE WHEN i = 1 THEN $9::jsonb END, i = 1 AND $10::boolean
            FROM (SELECT $6::text[] AS mimes, $7::text[] AS datas) m,
                 generate_series(1, $8::int) AS i
          RETURNING id`,
@@ -575,11 +658,24 @@ export async function chatHandler(req: HttpRequest, ctx: InvocationContext): Pro
           parts.map((p) => p?.mime ?? null),
           parts.map((p) => p?.base64 ?? null),
           parts.length,
+          mentioned.length ? JSON.stringify(mentioned) : null,
+          found.all,
         ],
       );
       const photos = images.length > 1 ? `📷 ${images.length} photos` : images.length ? '📷 Photo' : '';
       const preview = photos ? (body ? `${photos} · ${body}` : photos) : body;
-      await notifyChat(team.teamId, channel, user.id, myName, preview).catch((e) => ctx.warn('chat notify failed', e));
+      try {
+        if (found.all) {
+          await notifyMentions(team.teamId, channel, user.id, myName, preview, 'all');
+        } else {
+          if (mentioned.length) {
+            await notifyMentions(team.teamId, channel, user.id, myName, preview, mentioned.map((m) => m.id));
+          }
+          await notifyChat(team.teamId, channel, user.id, myName, preview, mentioned.map((m) => m.id));
+        }
+      } catch (e) {
+        ctx.warn('chat notify failed', e);
+      }
       return { status: 201, jsonBody: { id: rows[0]?.id, ids: rows.map((r) => r.id) } };
     }
 

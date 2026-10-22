@@ -363,3 +363,15 @@ test('planned subs are due once the clock reaches them', () => {
   assert.deepEqual(dueSubs(subs, 0, 320).map((s) => s.id), [1]);
   assert.deepEqual(dueSubs(subs, 1, 0).map((s) => s.id), [4]);
 });
+
+test('fair play is judged per game a player was there for', async () => {
+  const { fairnessOf } = await import('../dist/fairplay.js');
+  // Ann played 40 of 4 games, Ben 30 in the 3 he came to: both 10 a game.
+  assert.deepEqual(fairnessOf([{ minutes: 40, gamesAvailable: 4 }, { minutes: 30, gamesAvailable: 3 }]), {
+    min: 10, max: 10, spread: 0, average: 10, players: 2,
+  });
+  // Someone who missed every game is left out rather than counted as 0.
+  assert.equal(fairnessOf([{ minutes: 40, gamesAvailable: 4 }, { minutes: 0, gamesAvailable: 0 }]).players, 1);
+  assert.equal(fairnessOf([{ minutes: 20, gamesAvailable: 2 }, { minutes: 8, gamesAvailable: 2 }]).spread, 6);
+  assert.equal(fairnessOf([]), null);
+});

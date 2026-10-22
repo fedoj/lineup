@@ -33,7 +33,14 @@ export type Role =
   | 'team_parent'
   | 'parent'
   | 'player'
-  | 'viewer';
+  | 'viewer'
+  /**
+   * A custom role (Shadi, 10/21): made by organization or region staff, it
+   * covers chosen teams (by age group or one by one) and grants only the
+   * permissions picked for it. Never stored in membership: holders get
+   * team-level memberships expanded from custom_role (see customRoles.ts).
+   */
+  | 'custom';
 
 /**
  * Higher wins. Used only to compare two roles, never to imply capability.
@@ -45,6 +52,7 @@ export const ROLE_RANK: Record<Role, number> = {
   org_admin: 60,
   region_admin: 50,
   scheduler: 45,
+  custom: 44,
   coach: 40,
   assistant: 30,
   team_parent: 25,
@@ -77,6 +85,13 @@ export interface Membership {
   regionId?: string | null;
   divisionId?: string | null;
   teamId?: string | null;
+  /**
+   * Custom roles only: exactly what this membership may do, replacing the
+   * role's grants. Always team-level, so it never reaches the scope itself.
+   */
+  actions?: readonly Action[];
+  /** Custom roles only: the role's name, for display. */
+  customRoleName?: string | null;
 }
 
 /** Where a team sits in the hierarchy, as resolved from the database. */
@@ -226,6 +241,8 @@ const ROLE_GRANTS: Record<Role, readonly Action[]> = {
   parent: ['team.view', 'roster.view', 'game.view', 'attendance.view', 'stats.view', 'event.view', 'snack.view'],
   player: ['team.view', 'roster.view', 'game.view', 'stats.view', 'event.view', 'snack.view'],
   viewer: ['team.view', 'game.view', 'event.view'],
+  // Grants come from the membership's own actions (see grantsOn).
+  custom: [],
 };
 
 /* ------------------------------------------------------------------ tiers */
@@ -329,8 +346,12 @@ function canOnTeamIgnoringArchive(
   if (applicable.length === 0) return { allowed: false, reason: 'no-membership' };
 
   const leagueOnly = team.inLeague && LEAGUE_STAFF_ACTIONS.includes(action);
-  const granting = applicable.find(
-    (m) => roleGrants(m.role, action) && (!leagueOnly || LEAGUE_STAFF_ROLES.includes(m.role)),
+  // A custom role's actions were handed down by league staff, so they count
+  // as the league's call too.
+  const granting = applicable.find((m) =>
+    m.actions
+      ? m.teamId === team.teamId && m.actions.includes(action)
+      : roleGrants(m.role, action) && (!leagueOnly || LEAGUE_STAFF_ROLES.includes(m.role)),
   );
   if (!granting) {
     return { allowed: false, reason: 'role-denied', matchedRole: applicable[0].role };
@@ -439,6 +460,8 @@ export function canManageScope(ctx: AccessContext, scope: Scope): Decision {
 export function assignableRoles(ctx: AccessContext, actorRole: Role): Role[] {
   const rank = ROLE_RANK[actorRole];
   return (Object.keys(ROLE_RANK) as Role[]).filter((r) => {
+    // Custom roles are given from their own card, never through an invite role.
+    if (r === 'custom') return false;
     if (ROLE_RANK[r] > rank) return false;
     if (PAID_ONLY_ROLES.includes(r) && ctx.paywallEnabled && !tierHasFeature(ctx.tier, 'orgs')) {
       return false;

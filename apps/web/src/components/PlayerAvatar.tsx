@@ -14,6 +14,26 @@ import { SKIN_HEX, useLorelei } from '../lib/lorelei';
 
 const LINE = '#1b1311';
 
+/** How much narrower a girl's body and arms are drawn (Shadi, 10/21). */
+const SLIM = 0.86;
+
+/** Shirt colors a parent can pick for the card (Shadi, 10/21). */
+export const SHIRT_HEX: Record<string, string> = {
+  white: '#f7f7f9',
+  black: '#2b2d31',
+  gray: '#9aa1ab',
+  red: '#d93636',
+  orange: '#f08a24',
+  yellow: '#f5c518',
+  green: '#2e9d57',
+  teal: '#1aa3a3',
+  sky: '#5bb8f0',
+  blue: '#1f6feb',
+  navy: '#1e3466',
+  purple: '#7b4bc9',
+  pink: '#ec6fae',
+};
+
 function mix(a: string, b: string, t: number): string {
   const rgb = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const [x, y] = [rgb(a), rgb(b)];
@@ -61,7 +81,7 @@ export function PlayerFace({ avatar, size = 44, title }: { avatar: Avatar; size?
 export default function PlayerAvatar({
   avatar,
   size = 96,
-  shirt = '#1f6feb',
+  shirt: jersey = '#1f6feb',
   title,
 }: {
   avatar: Avatar | null | undefined;
@@ -72,6 +92,8 @@ export default function PlayerAvatar({
 }) {
   const a = avatar ?? DEFAULT_AVATAR;
   const id = useSvgId();
+  // A shirt color the parent picked; white stays the jersey color here (Shadi, 10/21).
+  const shirt = a.shirt && a.shirt !== 'white' ? SHIRT_HEX[a.shirt] ?? jersey : jersey;
   return (
     <svg className="player-avatar" width={size} height={size} viewBox="0 0 120 120" role="img" aria-label={title ?? 'Player avatar'}>
       <defs>
@@ -99,13 +121,15 @@ const PENTAGON = (cx: number, cy: number, r: number, turn = -90) =>
  */
 export function PlayerFigure({
   avatar,
-  shirt = '#f7f7f9',
+  shirt,
   width = 200,
   title,
   fade = false,
+  gender = null,
 }: {
   avatar: Avatar | null | undefined;
   shirt?: string;
+  gender?: string | null;
   width?: number;
   title?: string;
   fade?: boolean;
@@ -114,7 +138,7 @@ export function PlayerFigure({
   const id = useSvgId();
   return (
     <svg className="player-figure" width={width} height={(width * 260) / 200} viewBox="0 0 200 260" role="img" aria-label={title ?? 'Player'}>
-      <FigureArt a={a} id={id} shirt={shirt} fade={fade} />
+      <FigureArt a={a} id={id} shirt={shirt} fade={fade} gender={gender} />
     </svg>
   );
 }
@@ -123,17 +147,23 @@ export function PlayerFigure({
 export function FigureArt({
   a,
   id,
-  shirt = '#f7f7f9',
+  shirt: shirtProp,
   fade = false,
   logo = null,
+  gender = null,
 }: {
   a: Avatar;
   id: string;
+  /** Overrides the avatar's shirt color. */
   shirt?: string;
+  /** A girl is drawn slimmer. */
+  gender?: string | null;
   fade?: boolean;
   /** The team's region logo, on the chest of the tee (Fady, 10/20). */
   logo?: string | null;
 }) {
+  const slim = gender === 'girl';
+  const shirt = shirtProp ?? SHIRT_HEX[a.shirt] ?? SHIRT_HEX.white;
   const skin = SKIN_HEX[a.skin];
   const skinLo = shade(skin, 0.24);
   const shirtLo = shade(shirt, 0.16);
@@ -177,9 +207,11 @@ export function FigureArt({
       <g mask={fade ? `url(#${id}-fade)` : undefined}>
         {/* The head first: the tee's collar covers the bottom of the neck. */}
         <Head a={a} x={14} y={-8} size={172} />
-        {/* The neck down into the scooped collar. */}
+        {/* The neck down into the scooped collar: the art's own neck lines only,
+            no second shorter pair inside them (Shadi, 10/21). */}
         <path d="M88.5 120 L111.5 120 L113 148 L87 148 Z" fill={skin} />
-        <path d="M88.5 120 L87.6 140 M111.5 120 L112.4 140" stroke={LINE} strokeWidth="1.6" fill="none" strokeLinecap="round" />
+        {/* Girls are drawn slimmer through the body and arms (Shadi, 10/21). */}
+        <g transform={slim ? `translate(100 0) scale(${SLIM} 1) translate(-100 0)` : undefined}>
         {/* The body in a tee (Fady, 10/20: a scooped collar, and the body narrows
             under the arms instead of one wide block), outlined like the face. */}
         <path
@@ -189,12 +221,6 @@ export function FigureArt({
           strokeWidth="2"
           strokeLinejoin="round"
         />
-        {logo && (
-          <g>
-            <circle cx="131" cy="163" r="14" fill="#ffffff" stroke={LINE} strokeWidth="1.2" />
-            <image href={logo} x="119" y="151" width="24" height="24" preserveAspectRatio="xMidYMid meet" />
-          </g>
-        )}
         {/* Short sleeves over the shoulders. */}
         <path d="M40 142 C26 150 17 170 18 196 L46 200 C46 180 46 162 52 151 Z" fill={shirtLo} stroke={LINE} strokeWidth="1.8" strokeLinejoin="round" />
         <path d="M160 142 C174 150 183 170 182 196 L154 200 C154 180 154 162 148 151 Z" fill={shirtLo} stroke={LINE} strokeWidth="1.8" strokeLinejoin="round" />
@@ -208,6 +234,13 @@ export function FigureArt({
           <path d="M167 238 Q152 226 136 210" stroke={LINE} strokeWidth="18.4" />
           <path d="M167 238 Q152 226 136 210" stroke={skin} strokeWidth="15" />
         </g>
+        </g>
+        {logo && (
+          <g transform={slim ? `translate(${(131 - 100) * (SLIM - 1)} 0)` : undefined}>
+            <circle cx="131" cy="163" r="14" fill="#ffffff" stroke={LINE} strokeWidth="1.2" />
+            <image href={logo} x="119" y="151" width="24" height="24" preserveAspectRatio="xMidYMid meet" />
+          </g>
+        )}
         {/* The ball. */}
         <circle cx="100" cy="204" r="34" fill={`url(#${id}-ball)`} />
         <g clipPath={`url(#${id}-ballclip)`}>

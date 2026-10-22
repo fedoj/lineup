@@ -7,6 +7,7 @@ import {
   registrationStatus,
   suggestCompetitionCode,
   suggestedDivision,
+  placementCheck,
 } from '@lineup/shared';
 import { requireUser } from '../lib/auth.js';
 import { buildAccessContext, loadTeamContext } from '../lib/authz.js';
@@ -414,13 +415,15 @@ async function placeSignup(
   teamId: string,
   userId: string,
   scope: { regionId?: string; competitionId?: string },
-): Promise<{ parent: string; child: string; playerId: string; secondParent: string | null } | null> {
+): Promise<{ parent: string; child: string; playerId: string; secondParent: string | null } | { misfit: string } | null> {
   const placed = await transaction(async (client) => {
     const s = await client.query<{
       id: string; parent_user_id: string; child_name: string; status: string; gender: string;
       parent_label: string | null; second_parent_email: string | null; second_parent_label: string | null;
+      birth_year: number; season: string;
     }>(
-      `SELECT id, parent_user_id, child_name, status, gender, parent_label, second_parent_email, second_parent_label
+      `SELECT id, parent_user_id, child_name, status, gender, parent_label, second_parent_email, second_parent_label,
+              birth_year, season
          FROM region_signup
         WHERE id = $1 AND ($2::uuid IS NULL OR region_id = $2) AND ($3::uuid IS NULL OR competition_id = $3)
         FOR UPDATE`,
@@ -428,6 +431,19 @@ async function placeSignup(
     );
     const row = s.rows[0];
     if (!row || !['pending', 'approved'].includes(row.status)) return null;
+    // Boys on boys' teams, girls on girls', both on coed; own age group or older (Shadi, 10/21).
+    const team = (
+      await client.query<{ name: string; gender: string | null; catalog_division_id: string | null }>(
+        'SELECT name, gender, catalog_division_id FROM team WHERE id = $1',
+        [teamId],
+      )
+    ).rows[0];
+    const childGender = row.gender === 'girls' ? 'girls' : 'boys';
+    const fit = placementCheck(
+      { gender: childGender, division: suggestedDivision(row.birth_year, childGender, row.season) },
+      { gender: team?.gender, division: team?.catalog_division_id },
+    );
+    if (!fit.ok) return { misfit: `${row.child_name} can't go on ${team?.name ?? 'that team'} (${fit.reason}).` };
     const p = await client.query<{ id: string }>(
       `INSERT INTO player (team_id, number, name, gender) VALUES ($1, '', $2, $3) RETURNING id`,
       [teamId, row.child_name, row.gender === 'girls' ? 'girl' : row.gender === 'boys' ? 'boy' : null],
@@ -453,6 +469,7 @@ async function placeSignup(
     return { parent: row.parent_user_id, child: row.child_name, playerId, second: row.second_parent_email, secondLabel: row.second_parent_label };
   });
   if (!placed) return null;
+  if (placed.misfit !== undefined) return { misfit: placed.misfit };
   // The other parent gets the same children (Fady, 10/19).
   let secondParent: string | null = null;
   if (placed.second) {
@@ -465,7 +482,7 @@ async function placeSignup(
     }).catch(() => null);
     secondParent = r?.linked ? 'linked' : r?.created ? 'invited' : r?.reason ?? null;
   }
-  return { parent: placed.parent, child: placed.child, playerId: placed.playerId, secondParent };
+  return { parent: placed.parent!, child: placed.child!, playerId: placed.playerId!, secondParent };
 }
 
 /** Region staff: the region's code and the children waiting to be placed. */
@@ -503,8 +520,8 @@ export async function regionSignupsHandler(req: HttpRequest, ctx: InvocationCont
             ORDER BY CASE s.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 WHEN 'placed' THEN 2 ELSE 3 END, s.birth_year DESC, s.child_name`,
           [region.id, currentSeason()],
         ),
-        query<{ id: string; name: string; catalog_division_id: string | null }>(
-          `SELECT id, name, catalog_division_id FROM team WHERE region_id = $1 AND deleted_at IS NULL AND archived_at IS NULL ORDER BY name`,
+        query<{ id: string; name: string; catalog_division_id: string | null; gender: string | null }>(
+          `SELECT id, name, catalog_division_id, gender FROM team WHERE region_id = $1 AND deleted_at IS NULL AND archived_at IS NULL ORDER BY name`,
           [region.id],
         ),
         // The region's leagues and tournaments that have not ended, each with its sign-up link.
@@ -537,7 +554,7 @@ export async function regionSignupsHandler(req: HttpRequest, ctx: InvocationCont
           region: regionOut(region),
           competitions,
           signups: rows.map((s) => signupOut(s, true)),
-          teams: teams.map((t) => ({ id: t.id, name: t.name, division: t.catalog_division_id })),
+          teams: teams.map((t) => ({ id: t.id, name: t.name, division: t.catalog_division_id, gender: t.gender })),
           people: (await regionPeople(region.id)).map((p) => ({
             userId: p.id,
             name: p.display_name,
@@ -669,6 +686,7 @@ export async function regionSignupsHandler(req: HttpRequest, ctx: InvocationCont
 
       const placed = await placeSignup(id, team.teamId, user.id, { regionId: region.id });
       if (!placed) return { status: 409, jsonBody: { error: 'This sign-up was already placed or closed.' } };
+      if ('misfit' in placed) return { status: 400, jsonBody: { error: placed.misfit, code: 'WRONG_TEAM' } };
 
       const teamName = (await queryOne<{ name: string }>('SELECT name FROM team WHERE id = $1', [team.teamId]))?.name ?? 'a team';
       await query(
@@ -749,8 +767,8 @@ export async function coachSignupsHandler(req: HttpRequest, ctx: InvocationConte
             ORDER BY CASE s.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 WHEN 'placed' THEN 2 ELSE 3 END, s.birth_year DESC, s.child_name`,
           [comp.id],
         ),
-        query<{ id: string; name: string; catalog_division_id: string | null }>(
-          `SELECT t.id, t.name, t.catalog_division_id FROM competition_team ct JOIN team t ON t.id = ct.team_id
+        query<{ id: string; name: string; catalog_division_id: string | null; gender: string | null }>(
+          `SELECT t.id, t.name, t.catalog_division_id, t.gender FROM competition_team ct JOIN team t ON t.id = ct.team_id
             WHERE ct.competition_id = $1 AND t.deleted_at IS NULL AND t.archived_at IS NULL ORDER BY t.name`,
           [comp.id],
         ),
@@ -764,7 +782,7 @@ export async function coachSignupsHandler(req: HttpRequest, ctx: InvocationConte
             waiting: rows.filter((s) => s.status === 'pending' || s.status === 'approved').length,
           },
           signups: rows.map((s) => signupOut(s, true)),
-          teams: teams.map((t) => ({ id: t.id, name: t.name, division: t.catalog_division_id })),
+          teams: teams.map((t) => ({ id: t.id, name: t.name, division: t.catalog_division_id, gender: t.gender })),
         },
       };
     }
@@ -818,6 +836,7 @@ export async function coachSignupsHandler(req: HttpRequest, ctx: InvocationConte
       if (!canOnTeam(access, team, 'roster.edit').allowed) return FORBIDDEN;
       const placed = await placeSignup(id, team.teamId, user.id, { competitionId: comp.id });
       if (!placed) return { status: 409, jsonBody: { error: 'This sign-up was already placed or closed.' } };
+      if ('misfit' in placed) return { status: 400, jsonBody: { error: placed.misfit, code: 'WRONG_TEAM' } };
       const teamName = (await queryOne<{ name: string }>('SELECT name FROM team WHERE id = $1', [team.teamId]))?.name ?? 'a team';
       await query(`INSERT INTO notification (user_id, kind, title, body, link) VALUES ($1, 'system', $2, $3, $4)`, [
         placed.parent,

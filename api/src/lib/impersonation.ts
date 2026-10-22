@@ -70,7 +70,8 @@ export function mayImpersonate(user: AuthedUser): boolean {
 }
 
 export function isRole(v: unknown): v is Role {
-  return typeof v === 'string' && v in ROLE_RANK;
+  // Custom roles are never impersonated: they exist only per organization or region.
+  return typeof v === 'string' && v in ROLE_RANK && v !== 'custom';
 }
 
 export function isTier(v: unknown): v is TierId {

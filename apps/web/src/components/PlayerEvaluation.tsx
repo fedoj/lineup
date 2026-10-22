@@ -205,15 +205,22 @@ export function MyPlayerRating({ teamId }: { teamId: string }) {
     <section className="card">
       <h2>{data.evaluations.length > 1 ? 'Your players' : 'Your player'}</h2>
       {data.locked ? (
-        <div className="my-players">
-          {data.evaluations.map((ev) => (
-            <div key={ev.playerId} className="my-player-free">
-              <PlayerAvatar avatar={ev.avatar ?? defaultAvatarFor(ev.gender)} size={140} title={`${ev.playerName} avatar`} />
-              <strong>{ev.playerName}</strong>
-              <PaidLock feature="playerEvaluation" what="Your child's player card" />
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="my-players">
+            {data.evaluations.map((ev) => (
+              <div key={ev.playerId} className="my-player-free">
+                <PlayerAvatar avatar={ev.avatar ?? defaultAvatarFor(ev.gender)} size={140} title={`${ev.playerName} avatar`} />
+                <strong>{ev.playerName}</strong>
+              </div>
+            ))}
+          </div>
+          {/* What the Parent plan unlocks here (Shadi, 10/21). */}
+          <div className="family-locks">
+            <PaidLock feature="playerEvaluation" what="See your child’s player card and rating" />
+            <PaidLock feature="playerEvaluation" what="Design the player card avatar" />
+            <PaidLock feature="playerEvaluation" what="Share the player card" />
+          </div>
+        </>
       ) : (
         <CardStack
           items={data.evaluations}

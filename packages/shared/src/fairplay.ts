@@ -327,6 +327,33 @@ export function copyLineup(
 }
 
 /**
+ * How fairly a team shares playing time (Shadi, 10/21). Each player is judged
+ * only on the games they were there for: games they missed (absent, sick,
+ * injured or excused) do not count against the team, since a coach can't play
+ * someone who didn't show up. `perGame` is a player's minutes per game they
+ * were there; the spread is the gap between the most and least, in minutes.
+ * Players who missed every game are left out.
+ */
+export function fairnessOf(
+  players: ReadonlyArray<{ minutes: number; gamesAvailable: number }>,
+): { min: number; max: number; spread: number; average: number; players: number } | null {
+  const perGame = players.filter((p) => p.gamesAvailable > 0).map((p) => p.minutes / p.gamesAvailable);
+  if (perGame.length === 0) return null;
+  const min = Math.round(Math.min(...perGame));
+  const max = Math.round(Math.max(...perGame));
+  return {
+    min,
+    max,
+    spread: max - min,
+    average: Math.round(perGame.reduce((a, b) => a + b, 0) / perGame.length),
+    players: perGame.length,
+  };
+}
+
+/** Statuses that mean a player was not at a game. */
+export const MISSED_GAME_STATUSES: readonly string[] = ['absent', 'excused', 'injured'];
+
+/**
  * Whether a game counts towards the season record and playing time. A game
  * dated before today has been played; so has any game with a score. A game
  * today or later with no score is still to come, even with a lineup planned.

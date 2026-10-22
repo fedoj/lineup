@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { formatPlanPrice, TIER_ORDER, type Feature, type TierId } from '@lineup/shared';
+import { formatPlanPrice, TIER_ORDER, UNLIMITED, type Feature, type TierId } from '@lineup/shared';
 import { api, type MeResponse } from '../lib/api';
 import Impersonation from '../components/Impersonation';
 import { FamilyCard, JoinRegion } from '../components/RegionJoin';
@@ -7,6 +7,7 @@ import { TrialCard, trialFor } from '../components/Trial';
 import type { TrialTier } from '@lineup/shared';
 import TwoStepCard from '../components/TwoStep';
 import InstallCard from '../components/InstallCard';
+import NotificationSettings from '../components/NotificationSettings';
 import { ADS_ENABLED } from '../lib/ads';
 import { PLAN_HIGHLIGHTS, type PlanFor } from '../lib/planFor';
 import { buysOnWebsite, FROM_APP_KEY, openWebsite, storeName, websiteHost } from '../lib/purchases';
@@ -203,7 +204,8 @@ export default function Account({
       key: 'teams',
       label: 'Teams you create',
       highlight: reco === 'coach',
-      cell: (id) => (FAMILY_TIERS.has(id) ? 'Join by invite' : me.plan.tiers[id].limits.teams),
+      cell: (id) =>
+        FAMILY_TIERS.has(id) ? 'Join by invite' : me.plan.tiers[id].limits.teams >= UNLIMITED ? 'Unlimited' : me.plan.tiers[id].limits.teams,
     },
     {
       key: 'games',
@@ -386,7 +388,7 @@ export default function Account({
               <dt>Teams</dt>
               <dd>
                 {me.usage.teams ?? 0}
-                {me.paywallEnabled ? ` / ${me.limits.teams}` : ' (unlimited)'}
+                {me.paywallEnabled && me.limits.teams < UNLIMITED ? ` / ${me.limits.teams}` : ' (unlimited)'}
               </dd>
               <dt>Games per team each season</dt>
               <dd>{me.paywallEnabled ? me.limits.gamesPerTeam : 'unlimited'}</dd>
@@ -582,6 +584,7 @@ export default function Account({
       </section>
 
       <InstallCard />
+      <NotificationSettings />
 
       <TwoStepCard />
 

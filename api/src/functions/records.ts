@@ -1,11 +1,11 @@
 import { app, type HttpRequest, type HttpResponseInit, type InvocationContext } from '@azure/functions';
-import { GAME_EVENT_KINDS, isGamePlayed, minutesFromAssignments, type GameEventKind } from '@lineup/shared';
+import { fairnessOf, GAME_EVENT_KINDS, isGamePlayed, minutesFromAssignments, MISSED_GAME_STATUSES, type GameEventKind } from '@lineup/shared';
 import { requireUser } from '../lib/auth.js';
 import { filterRoster, guardTeam } from '../lib/authz.js';
 import { query, queryOne } from '../lib/db.js';
 import { gameLocked } from '../lib/gameLock.js';
 import { doneSubsByGame } from './subs.js';
-import { enforceFeature } from '../lib/entitlements.js';
+import { enforceFeature, featureEnabled } from '../lib/entitlements.js';
 import { appToday } from '../lib/today.js';
 
 function isEventKind(k: unknown): k is GameEventKind {
@@ -237,8 +237,14 @@ export async function analyticsHandler(
     if (!user) return { status: 401, jsonBody: { error: 'Not authenticated' } };
 
     const teamId = req.query.get('teamId') ?? undefined;
-    const guard = await guardTeam(user, teamId, 'analytics.view');
+    // Families (parents and team parents) get the team's record and their own
+    // child's numbers, on the Parent plan (Shadi, 10/21); never other players'.
+    const family = req.query.get('view') === 'family';
+    const guard = await guardTeam(user, teamId, family ? 'game.view' : 'analytics.view');
     if (!guard.ok) return guard.response;
+    if (family && !(await featureEnabled(user.id, 'ownPlayerStats'))) {
+      return { status: 200, jsonBody: { locked: true } };
+    }
 
     const [players, games, events, attendance] = await Promise.all([
       query<{ id: string; name: string; number: string }>(
@@ -264,6 +270,17 @@ export async function analyticsHandler(
         [teamId],
       ),
     ]);
+    // Who missed which game (said they couldn't come, or marked absent on the
+    // day): those games never count against fair play (Shadi, 10/21).
+    const missed = await query<{ game_id: string; player_id: string }>(
+      `SELECT a.game_id, a.player_id FROM game_availability a JOIN game g ON g.id = a.game_id
+        WHERE g.team_id = $1 AND a.status = ANY($2::text[])
+       UNION
+       SELECT game_id, player_id FROM attendance
+        WHERE team_id = $1 AND game_id IS NOT NULL AND status = ANY($2::text[])`,
+      [teamId, MISSED_GAME_STATUSES],
+    );
+    const missedBy = new Set(missed.map((m) => `${m.game_id}:${m.player_id}`));
 
     const byPlayer = new Map(
       players.map((p) => [
@@ -282,6 +299,8 @@ export async function analyticsHandler(
           clearances: 0,
           minutes: 0,
           gamesPlayed: 0,
+          // Games the player was there for (not marked absent, sick, injured or excused).
+          gamesAvailable: 0,
           present: 0,
           absent: 0,
           attendanceRate: 0,
@@ -303,6 +322,12 @@ export async function analyticsHandler(
         if (!row) continue;
         row.minutes += Math.round(secs / 60);
         row.gamesPlayed += 1;
+      }
+      // Only games with a lineup count toward fair play.
+      if (Object.keys(g.assignments ?? {}).length) {
+        for (const row of byPlayer.values()) {
+          if (!missedBy.has(`${g.id}:${row.playerId}`)) row.gamesAvailable += 1;
+        }
       }
     }
 
@@ -401,17 +426,31 @@ export async function analyticsHandler(
       goalsFor: played.reduce((a, g) => a + g.us, 0),
       goalsAgainst: played.reduce((a, g) => a + g.them, 0),
     };
+    const results = played.map((g) => ({
+      id: g.id,
+      gameNo: g.game_no,
+      date: g.date ? g.date.toISOString().slice(0, 10) : null,
+      opponent: g.opponent,
+      us: g.us,
+      them: g.them,
+    }));
 
-    // Fairness: how evenly minutes are spread across the squad.
-    const minutes = visible.map((p) => p.minutes);
-    const fairness = minutes.length
-      ? {
-          min: Math.min(...minutes),
-          max: Math.max(...minutes),
-          spread: Math.max(...minutes) - Math.min(...minutes),
-          average: Math.round(minutes.reduce((a, b) => a + b, 0) / minutes.length),
-        }
-      : null;
+    if (family) {
+      const mine = new Set(guard.ctx.guardianOf ?? []);
+      return {
+        status: 200,
+        jsonBody: {
+          locked: false,
+          record,
+          games: results,
+          children: [...byPlayer.values()].filter((p) => mine.has(p.playerId)),
+        },
+      };
+    }
+
+    // Fairness: how evenly minutes are spread across the squad, per game each
+    // player was there for (Shadi, 10/21: missed games don't count against it).
+    const fairness = fairnessOf(visible);
 
     return {
       status: 200,
@@ -420,14 +459,7 @@ export async function analyticsHandler(
         team,
         fairness,
         players: visible,
-        games: played.map((g) => ({
-          id: g.id,
-          gameNo: g.game_no,
-          date: g.date ? g.date.toISOString().slice(0, 10) : null,
-          opponent: g.opponent,
-          us: g.us,
-          them: g.them,
-        })),
+        games: results,
       },
     };
   } catch (err) {

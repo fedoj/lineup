@@ -9,6 +9,7 @@ import type {
   GameEvent,
   GameEventKind,
   LineupResource,
+  NotifyPrefs,
   Player,
   PlayerFairness,
   Role,
@@ -68,6 +69,8 @@ export interface MeResponse {
   terms?: { version: string; accepted: boolean };
   /** How many organizations or regions this person referees for. */
   refereeOrgs?: number;
+  /** Children this person signed up through league or tournament links (a parent). */
+  signupChildren?: number;
   /** A platform admin account (the admin console is checked only for these). */
   platformAdmin?: boolean;
   /** Online billing through Stripe. */
@@ -124,6 +127,8 @@ export interface AnalyticsPlayer {
   clearances: number;
   minutes: number;
   gamesPlayed: number;
+  /** Games the player was there for (missed ones don't count against fair play). */
+  gamesAvailable?: number;
   present: number;
   absent: number;
   attendanceRate: number;
@@ -146,7 +151,8 @@ export interface Analytics {
     goalsFor: number; goalsAgainst: number;
   };
   team: TeamTotals;
-  fairness: { min: number; max: number; spread: number; average: number } | null;
+  /** Minutes per game a player was there for (Shadi, 10/21). */
+  fairness: { min: number; max: number; spread: number; average: number; players?: number } | null;
   players: AnalyticsPlayer[];
   games: Array<{
     id: string; gameNo: number; date: string | null;
@@ -388,6 +394,168 @@ export interface FriendlyInput {
 }
 
 /** A Lineup team a friendly can be played against. */
+/** One announcement as the caller sees it; `audience` only for the staff who manage it. */
+export interface Announcement {
+  id: string;
+  title: string;
+  body: string;
+  from: string;
+  author: string | null;
+  createdAt: string;
+  audience: { who: 'everyone' | 'roles' | 'referees'; roles: string[]; regions: string[]; teams: string[]; recipients: number } | null;
+  canDelete: boolean;
+}
+
+export interface AnnouncementList {
+  canPost: boolean;
+  scopes: Array<{
+    scope: 'org' | 'region';
+    id: string;
+    orgId: string;
+    label: string;
+    regions: Array<{ id: string; name: string }>;
+    teams: Array<{ id: string; name: string; regionName: string | null }>;
+  }>;
+  announcements: Announcement[];
+}
+
+/** An organization's or region's custom roles (Shadi, 10/21). */
+export interface CustomRolesView {
+  scope: 'org' | 'region';
+  id: string;
+  name: string;
+  permissions: Array<{ key: string; label: string; hint: string; fixed: boolean }>;
+  ageGroups: string[];
+  teams: Array<{ id: string; name: string; ageGroup: string | null; regionName: string | null }>;
+  roles: Array<{
+    id: string;
+    name: string;
+    permissions: string[];
+    divisions: string[];
+    teamIds: string[];
+    teamCount: number;
+    people: Array<{ userId: string; name: string; email: string | null }>;
+    invited: Array<{ inviteId: string; email: string }>;
+  }>;
+  createdId?: string | null;
+  result?: 'added' | 'already' | 'already-invited' | 'invited';
+  emailed?: boolean;
+  link?: string;
+}
+
+/** A group chat as listed (Shadi, 10/21). */
+export interface GroupChatSummary {
+  id: string;
+  kind: 'custom' | 'staff' | 'admins';
+  /** The Staff and Admins & directors chats every organization and region has. */
+  isDefault: boolean;
+  name: string;
+  scope: 'org' | 'region';
+  scopeId: string;
+  scopeLabel: string;
+  audience: string;
+  roles: string[];
+  divisions: string[];
+  endsOn: string | null;
+  archivedAt: string | null;
+  /** Not archived and its end date not passed. */
+  open: boolean;
+  member: boolean;
+  canManage: boolean;
+  unread?: number;
+  last?: { author: string | null; body: string; at: string } | null;
+}
+
+export interface GroupChatList {
+  canCreate: boolean;
+  chats: GroupChatSummary[];
+}
+
+export interface GroupChatOption {
+  scope: 'org' | 'region';
+  id: string;
+  label: string;
+  staff: boolean;
+  viaRoles: string[];
+  ageGroups: string[];
+  teams: Array<{ id: string; name: string; ageGroup: string | null; regionName: string | null }>;
+  customRoles: Array<{ id: string; name: string }>;
+}
+
+export interface GroupChatView {
+  chat: GroupChatSummary & {
+    canPost: boolean;
+    /** Photos and polls: a paid plan, a custom role that allows them, or a Staff / Admins & directors chat. */
+    canPhoto: boolean;
+    canPoll: boolean;
+    people: Array<{ id: string; name: string }>;
+  };
+  maxLength: number;
+  reactions: string[];
+  pollMaxOptions: number;
+  photosPerSend: number;
+  messages: Array<{
+    id: string;
+    kind: 'message' | 'system' | 'poll';
+    author: string;
+    mine: boolean;
+    body: string;
+    image: { url: string } | null;
+    createdAt: string;
+    reactions: Array<{ emoji: string; count: number; mine: boolean }>;
+    poll: ChatMessage['poll'];
+    canDelete: boolean;
+  }>;
+}
+
+export interface StatLeader {
+  playerId: string;
+  name: string;
+  team: string;
+  value: number | null;
+  card?: number | null;
+  clearances?: number;
+}
+
+export interface FairPlayTeam {
+  teamId: string;
+  name: string;
+  regionName: string | null;
+  games: number;
+  min: number;
+  max: number;
+  spread: number;
+  average: number;
+  players: number;
+}
+
+export interface ScopeStats {
+  regions: Array<{ id: string; name: string }>;
+  teams: Array<{ id: string; name: string; regionName: string | null; teamType?: string | null }>;
+  teamTypes?: string[];
+  /** Injured in the last two months. */
+  injuries?: Array<{ playerId: string; name: string; team: string; lastDate: string; times: number }>;
+  fairPlay?: { fairest: FairPlayTeam[]; leastFair: FairPlayTeam[] };
+  /** When these numbers were worked out (refreshed overnight). */
+  computedAt?: string;
+  leaders: Partial<Record<'goals' | 'assists' | 'saves' | 'shots' | 'topRated' | 'defenders' | 'cards', StatLeader[]>>;
+  teamTable: Array<{
+    teamId: string;
+    name: string;
+    regionName: string | null;
+    teamType?: string | null;
+    played: number;
+    won: number;
+    drawn: number;
+    lost: number;
+    gf: number;
+    ga: number;
+    cleanSheets: number;
+  }>;
+  rated?: number;
+  players?: number;
+}
+
 /** A friendly a team in an organization or region asked for, waiting for (or past) its staff's approval. */
 export interface FriendlyRequest {
   id: string;
@@ -453,6 +621,14 @@ export type CompetitionKind = 'season' | 'tournament';
 export type CompetitionStatus = 'upcoming' | 'active' | 'archived';
 
 /** A season or tournament in a list. */
+/** The team's record and the caller's own children's numbers; just locked without the Parent plan. */
+export interface FamilyStats {
+  locked: boolean;
+  record?: Analytics['record'];
+  games?: Analytics['games'];
+  children?: Analytics['players'];
+}
+
 export interface CompetitionSummary {
   id: string;
   kind: CompetitionKind;
@@ -816,6 +992,10 @@ export interface ChatMessage {
   child?: string | null;
   role: string | null;
   body: string;
+  /** Names @mentioned in the message, highlighted (Shadi, 10/21). */
+  mentions?: string[];
+  /** Staff mentioned @everyone. */
+  mentionAll?: boolean;
   /** A photo sent with the message (the caption is the body). */
   image?: { url: string } | null;
   createdAt: string;
@@ -855,6 +1035,10 @@ export interface TeamChat {
   maxLength: number;
   reactions: string[];
   visitors: Array<{ name: string; role: string }>;
+  /** The people the caller can @mention in this chat. */
+  members?: Array<{ id: string; name: string }>;
+  /** Staff may @mention everyone in the chat. */
+  canMentionAll?: boolean;
   messages: ChatMessage[];
 }
 
@@ -1302,7 +1486,7 @@ export const api = {
   listTeams: () => request<Team[]>('/teams'),
   createTeam: (team: Partial<Team> & { catalogDivisionId?: string; regionId?: string }) =>
     request<Team>('/teams', body(team)),
-  updateTeam: (team: { id: string; name?: string; coach?: string; catalogDivisionId?: string }) =>
+  updateTeam: (team: { id: string; name?: string; coach?: string; catalogDivisionId?: string; teamType?: string | null }) =>
     request<Team>('/teams', { method: 'PATCH', body: JSON.stringify(team) }),
   /** Archive a team (read-only) or bring it back within 1 month. */
   archiveTeam: (id: string, action: 'archive' | 'restore') =>
@@ -1484,6 +1668,9 @@ export const api = {
 
   analytics: (teamId: string) =>
     request<Analytics>(apiPath.analytics(teamId)),
+  /** A family's view of the team's record and their own child's numbers (Parent plan; Shadi, 10/21). */
+  familyStats: (teamId: string) =>
+    request<FamilyStats>(`/analytics?teamId=${enc(teamId)}&view=family`),
 
   members: (teamId: string) =>
     request<Member[]>(`/members?teamId=${encodeURIComponent(teamId)}`),
@@ -1747,8 +1934,76 @@ export const api = {
   twoStep: () => request<TwoStep>('/two-step'),
   twoStepAction: (action: 'on' | 'off' | 'reset-phone') => request<TwoStep>('/two-step', body({ action })),
   /** Push notifications: the public key, and how many devices have them on. */
-  push: () => request<{ available: boolean; publicKey: string | null; devices: number }>('/push'),
+  push: () =>
+    request<{ available: boolean; publicKey: string | null; devices: number; prefs?: NotifyPrefs }>('/push'),
+  /** What is pushed to this person's phones and computers (Shadi, 10/21). */
+  savePushPrefs: (prefs: Partial<NotifyPrefs>) => request<{ prefs: NotifyPrefs }>('/push', body({ prefs })),
+  /** Announcements sent to the caller, and for staff where they may post (Shadi, 10/21). */
+  announcements: () => request<AnnouncementList>('/announcements'),
+  postAnnouncement: (b: {
+    scope: 'org' | 'region';
+    scopeId: string;
+    title: string;
+    body: string;
+    audience: 'everyone' | 'roles' | 'referees';
+    roles?: string[];
+    regionIds?: string[];
+    teamIds?: string[];
+  }) => request<{ id: string; recipients: number }>('/announcements', body({ action: 'post', ...b })),
+  deleteAnnouncement: (id: string) => request<{ ok: boolean }>('/announcements', body({ action: 'delete', id })),
+  /** An organization's or region's custom roles, for its staff (Shadi, 10/21). */
+  customRoles: (scope: 'org' | 'region', id: string) =>
+    request<CustomRolesView>(`/custom-roles?${new URLSearchParams({ scope, id })}`),
+  customRoleAction: (
+    b: { scope: 'org' | 'region'; id: string } & (
+      | { action: 'create'; name: string; permissions: string[]; divisions: string[]; teamIds: string[] }
+      | { action: 'update'; roleId: string; name: string; permissions: string[]; divisions: string[]; teamIds: string[] }
+      | { action: 'delete'; roleId: string }
+      | { action: 'assign'; roleId: string; email: string }
+      | { action: 'unassign'; roleId: string; userId?: string; inviteId?: string }
+    ),
+  ) => request<CustomRolesView>('/custom-roles', body(b)),
+  /** Group chats across teams (Shadi, 10/21). */
+  groupChats: (scope: 'org' | 'region', id: string) => request<GroupChatList>(`/group-chats?${new URLSearchParams({ scope, id })}`),
+  groupChatOptions: (scope: 'org' | 'region', id: string) =>
+    request<{ options: GroupChatOption[] }>(`/group-chats?${new URLSearchParams({ create: '1', scope, id })}`),
+  groupChat: (id: string) => request<GroupChatView>(`/group-chats?${new URLSearchParams({ chat: id })}`),
+  createGroupChat: (b: {
+    scope: 'org' | 'region';
+    id: string;
+    name: string;
+    roles: string[];
+    divisions: string[];
+    teamIds: string[];
+    customRoleIds: string[];
+    endsOn: string | null;
+  }) => request<{ id: string; people: number }>('/group-chats', body({ action: 'create', ...b })),
+  groupChatAction: (
+    b:
+      | { action: 'send'; chatId: string; body: string; images?: string[] }
+      | { action: 'poll'; chatId: string; question: string; options: string[]; multi: boolean }
+      | { action: 'vote'; messageId: string; choices: number[] }
+      | { action: 'closePoll'; messageId: string }
+      | { action: 'react'; messageId: string; emoji: string }
+      | { action: 'edit'; chatId: string; name: string; endsOn: string | null }
+      | { action: 'archive'; chatId: string; archived: boolean }
+      | { action: 'delete'; chatId: string }
+      | { action: 'deleteMessage'; messageId: string },
+  ) => request<{ ok?: boolean; id?: string | null }>('/group-chats', body(b)),
+  /** An organization's or region's season leaders and team records, for its staff. */
+  scopeStats: (scope: 'org' | 'region', id: string, filter: { regionId?: string; teamId?: string; teamType?: string } = {}) =>
+    request<ScopeStats>(
+      `/scope-stats?${new URLSearchParams({
+        scope,
+        id,
+        ...(filter.regionId ? { regionId: filter.regionId } : {}),
+        ...(filter.teamId ? { teamId: filter.teamId } : {}),
+        ...(filter.teamType ? { teamType: filter.teamType } : {}),
+      }).toString()}`,
+    ),
   savePush: (sub: PushSubscriptionJSON) => request<{ ok: boolean }>('/push', body(sub)),
+  /** The Android app's Firebase token (Shadi, 10/22). */
+  saveNativePush: (fcmToken: string) => request<{ ok: boolean; delivered: boolean }>('/push', body({ fcmToken })),
   removePush: (endpoint: string) => request<void>(`/push?endpoint=${encodeURIComponent(endpoint)}`, { method: 'DELETE' }),
   testPush: () => request<{ sent: number }>('/push', body({ test: true })),
   reportPush: (report: { outcome: string; step?: string; detail?: string; permission?: string; installed?: boolean }) =>
@@ -1889,7 +2144,7 @@ export type ParentLabel = 'mother' | 'father' | 'guardian';
 export interface CoachSignups {
   competition: SignupCompetition;
   signups: Signup[];
-  teams: Array<{ id: string; name: string; division: string | null }>;
+  teams: Array<{ id: string; name: string; division: string | null; gender?: string | null }>;
   /** A coach of one of its teams: sees and shares the link, nothing else (Fady, 10/20). */
   shareOnly?: boolean;
 }
@@ -1914,7 +2169,7 @@ export interface RegionSignups {
   /** The region's leagues and tournaments that have not ended, each with its sign-up link. */
   competitions: SignupCompetition[];
   signups: Signup[];
-  teams: Array<{ id: string; name: string; division: string | null }>;
+  teams: Array<{ id: string; name: string; division: string | null; gender?: string | null }>;
   /** People who signed up with the code or already hold a role on a team here. */
   people?: Array<{
     userId: string;

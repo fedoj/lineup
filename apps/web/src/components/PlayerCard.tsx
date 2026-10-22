@@ -9,6 +9,7 @@ import {
   DEFAULT_AVATAR,
   defaultAvatarFor,
   GIRL_ONLY_PARTS,
+  hairChoices,
   flagEmoji,
   HOME_COUNTRY,
   type Avatar,
@@ -18,7 +19,7 @@ import { api, type PlayerEvaluation } from '../lib/api';
 import { renderPlayerCardImage } from '../lib/exportImages';
 import { canvasBlob, fileSlug, shareFile } from '../lib/shareFile';
 import { PaidLock, useFeature } from '../lib/features';
-import { FigureArt, PlayerFace, PlayerFigure } from './PlayerAvatar';
+import { FigureArt, PlayerFace, PlayerFigure, SHIRT_HEX } from './PlayerAvatar';
 import { loadLorelei } from '../lib/lorelei';
 
 /** A country's name in the reader's language: "EG" -> "Egypt". */
@@ -46,6 +47,7 @@ const CHOICE_LABEL: Record<string, string> = {
   almond: 'Almond', smile: 'Smiling', green: 'Green', hazel: 'Hazel',
   none: 'None', sport: 'Sport',
   glitter: 'Glitter ✨', natural: 'Natural', rosy: 'Rosy',
+  white: 'White', orange: 'Orange', yellow: 'Yellow', teal: 'Teal', sky: 'Sky blue', navy: 'Navy', purple: 'Purple',
 };
 
 /** Card colours by tier: the metal, its rim and the lettering. */
@@ -133,7 +135,7 @@ export function PlayerCardArt({ ev }: { ev: PlayerEvaluation }) {
         </text>
         {/* The player, big, from the waist up. */}
         <g transform="translate(60 14)">
-          <FigureArt a={ev.avatar ?? defaultAvatarFor(ev.gender)} id={`${id}fig`} fade logo={ev.regionLogo ?? null} />
+          <FigureArt a={ev.avatar ?? defaultAvatarFor(ev.gender)} id={`${id}fig`} fade logo={ev.regionLogo ?? null} gender={ev.gender ?? null} />
         </g>
         {/* The lower band the name and stats sit on. */}
         <rect x="0" y="262" width="300" height="160" fill={`url(#${id}-band)`} />
@@ -321,7 +323,7 @@ export function AvatarEditor({
   return (
     <div className="avatar-editor">
       <div className="avatar-preview">
-        <PlayerFigure avatar={a} width={170} title={`${playerName} avatar preview`} />
+        <PlayerFigure avatar={a} width={170} title={`${playerName} avatar preview`} gender={gender ?? null} />
       </div>
       {(Object.keys(AVATAR_OPTIONS) as AvatarPart[])
         .filter((part) => gender === 'girl' || !GIRL_ONLY_PARTS.includes(part))
@@ -330,7 +332,8 @@ export function AvatarEditor({
           <span className="avatar-part-label">{AVATAR_LABELS[part]}</span>
           {part === 'hair' ? (
             <div className="hair-tiles" role="radiogroup" aria-label={AVATAR_LABELS[part]}>
-              {AVATAR_OPTIONS.hair.map((v, i) => (
+              {/* Boys' cuts for boys, girls' styles for girls (Shadi, 10/21); the current one always shows. */}
+              {[...(hairChoices(gender).includes(a.hair) ? [] : [a.hair]), ...hairChoices(gender)].map((v, i) => (
                 <button
                   key={v}
                   type="button"
@@ -355,6 +358,7 @@ export function AvatarEditor({
                 className={`chip${a[part] === v ? ' on' : ''}`}
                 onClick={() => setA((prev) => ({ ...prev, [part]: v }) as Avatar)}
               >
+                {part === 'shirt' && <span className="swatch" style={{ background: SHIRT_HEX[v] }} aria-hidden="true" />}
                 {CHOICE_LABEL[v] ?? v}
               </button>
             ))}

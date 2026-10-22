@@ -18,6 +18,9 @@ export * from './supportEmail.js';
 export * from './competition.js';
 export * from './teamArchive.js';
 export * from './bracket.js';
+export * from './notifyPrefs.js';
+export * from './customRoles.js';
+export * from './groupChat.js';
 // Exported last so Format and Periods resolve to their definitions here;
 // types.ts re-exports the same symbols for convenience.
 export * from './formations.js';

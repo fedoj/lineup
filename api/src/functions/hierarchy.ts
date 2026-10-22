@@ -720,6 +720,7 @@ const ROLE_LABEL: Record<Role, string> = {
   parent: 'Parent',
   player: 'Player',
   viewer: 'Viewer',
+  custom: 'Custom role',
 };
 
 type InviteScopeKind = 'org' | 'region' | 'division' | 'team';
@@ -740,6 +741,8 @@ const ROLE_SCOPES: Record<Role, readonly InviteScopeKind[]> = {
   parent: ['team'],
   player: ['team'],
   viewer: ['org', 'region', 'division', 'team'],
+  // Given from the custom roles card (customRoles.ts), never through this form.
+  custom: [],
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -747,7 +750,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Team roles that may come with a child on the team (required only for parent). */
 const CHILD_LINK_ROLES: readonly string[] = ['parent', 'player', 'team_parent', 'coach', 'assistant'];
 
-function appOrigin(): string {
+export function appOrigin(): string {
   const configured = process.env.APP_ORIGIN?.replace(/\/+$/, '');
   if (configured) return configured;
   return process.env.APP_ENV === 'prd' ? 'https://lineup.mahoul.io' : 'https://lineup-dev.mahoul.io';
@@ -805,7 +808,7 @@ async function scopeDecision(
   return { decision: canOnScope(access, { orgId: o.id }, action), name: o.name };
 }
 
-function inviteEmail(opts: {
+export function inviteEmail(opts: {
   inviter: string;
   scopeName: string;
   roleLabel: string;
@@ -1082,6 +1085,7 @@ export async function invitePreviewHandler(
       scope_name: string | null;
       scope_kind: InviteScopeKind;
       inviter: string | null;
+      custom_role_name: string | null;
     }>(
       `SELECT i.email, i.role, i.expires_at, i.accepted_at, i.revoked_at,
               COALESCE(t.name, d.name, d.code, r.name, o.name) AS scope_name,
@@ -1089,13 +1093,15 @@ export async function invitePreviewHandler(
                    WHEN i.division_id IS NOT NULL THEN 'division'
                    WHEN i.region_id IS NOT NULL THEN 'region'
                    ELSE 'org' END AS scope_kind,
-              u.display_name AS inviter
+              u.display_name AS inviter,
+              cr.name AS custom_role_name
          FROM invite i
          LEFT JOIN team t ON t.id = i.team_id
          LEFT JOIN division d ON d.id = i.division_id
          LEFT JOIN region r ON r.id = i.region_id
          LEFT JOIN organization o ON o.id = i.org_id
          LEFT JOIN app_user u ON u.id = i.invited_by
+         LEFT JOIN custom_role cr ON cr.id = i.custom_role_id
         WHERE i.token = $1`,
       [token],
     );
@@ -1115,7 +1121,7 @@ export async function invitePreviewHandler(
       jsonBody: {
         status,
         role: row.role,
-        roleLabel: ROLE_LABEL[row.role] ?? row.role,
+        roleLabel: row.custom_role_name ?? ROLE_LABEL[row.role] ?? row.role,
         scopeKind: row.scope_kind,
         scopeName: row.scope_name ?? 'a team',
         inviter: row.inviter ?? 'A coach',
@@ -1155,6 +1161,27 @@ export async function acceptInviteHandler(
       // signed in as themselves. Accepting it then would burn the invite on the
       // wrong account, so refuse and leave it usable for the invited person.
       if (i.invited_by === user.id) return { blocked: 'own-invite' as const };
+      // A custom role invite (customRoles.ts) adds the person to the role,
+      // not to a membership at the organization or region.
+      if (i.custom_role_id) {
+        const role = await client.query(
+          'SELECT 1 FROM custom_role WHERE id = $1 AND deleted_at IS NULL',
+          [i.custom_role_id],
+        );
+        if (role.rowCount === 0) return null;
+        const added = await client.query(
+          `INSERT INTO custom_role_member (custom_role_id, user_id, added_by)
+           VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+          [i.custom_role_id, user.id, i.invited_by],
+        );
+        if (added.rowCount === 0) return { blocked: 'already-member' as const };
+        await client.query(
+          'UPDATE invite SET accepted_at = now(), accepted_by = $2 WHERE id = $1',
+          [i.id, user.id],
+        );
+        return { role: i.role, teamId: null, regionId: i.region_id, orgId: i.org_id };
+      }
+
       const already = await client.query(
         `SELECT 1 FROM membership
           WHERE user_id = $1

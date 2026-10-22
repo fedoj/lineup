@@ -1,4 +1,4 @@
-import { isNativeApp } from './native';
+import { isNativeApp, nativePush } from './native';
 
 /**
  * Installing Lineup on the home screen, and notifications (Fady, 10/19).
@@ -188,6 +188,40 @@ export function reportPushSetup(
         ? { outcome: 'failed', step: 'other', detail: `${outcome.name}: ${outcome.message}`.slice(0, 300) }
         : { outcome: outcome === 'granted' ? 'on' : outcome };
   void send({ ...r, permission, installed: isInstalled() }).catch(() => undefined);
+}
+
+/**
+ * In the Android app (Shadi, 10/22): notifications come through Firebase.
+ * On every start, ask once for permission (Android 13+ shows its own
+ * question), register with Firebase, and give the token to the server.
+ * Tapping a notification opens its page in the app. Does nothing on the
+ * website or in an app build without the push plugin.
+ */
+let nativePushStarted = false;
+
+export async function startNativePush(save: (token: string) => Promise<unknown>): Promise<'on' | 'denied' | 'unavailable'> {
+  const push = nativePush();
+  if (!push) return 'unavailable';
+  if (!nativePushStarted) {
+    nativePushStarted = true;
+    await push.addListener('registration', (t) => void save(t.value).catch(() => undefined));
+    await push.addListener('registrationError', () => undefined);
+    await push.addListener('pushNotificationActionPerformed', (a) => {
+      const link = a.notification.data?.link;
+      if (typeof link === 'string' && link.startsWith('/')) {
+        window.dispatchEvent(new CustomEvent('lineup:open', { detail: link }));
+      }
+    });
+    // The channel the server sends to; Android files notifications under it.
+    await push
+      .createChannel?.({ id: 'lineup', name: 'Lineup', description: 'Games, practices, events and messages', importance: 4, visibility: 1 })
+      .catch(() => undefined);
+  }
+  let { receive } = await push.checkPermissions();
+  if (receive === 'prompt' || receive === 'prompt-with-rationale') receive = (await push.requestPermissions()).receive;
+  if (receive !== 'granted') return 'denied';
+  await push.register();
+  return 'on';
 }
 
 /** Stop push on this device. */

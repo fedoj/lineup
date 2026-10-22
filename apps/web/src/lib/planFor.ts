@@ -33,6 +33,8 @@ export function recommendPlan(input: {
   managesRegion: boolean;
   referee: boolean;
   signupAnswer?: string | null;
+  /** Signed a child up through a league or tournament link, or said "I'm a parent". */
+  signupParent?: boolean;
 }): PlanFor {
   const roles = new Set(input.teamRoles.filter(Boolean) as string[]);
   if (input.managesOrg) return { tier: 'organization', reason: 'You run an organization.' };
@@ -40,6 +42,8 @@ export function recommendPlan(input: {
   if (roles.has('coach') || roles.has('assistant')) return { tier: 'coach', reason: 'You coach a team.' };
   if (roles.has('team_parent')) return { tier: 'parent', reason: 'You are a team parent.' };
   if (roles.has('parent') || roles.has('player')) return { tier: 'parent', reason: 'You follow your child’s team.' };
+  // Everyone who joins from a league's sign-up link is a parent (Shadi, 10/21).
+  if (input.signupParent) return { tier: 'parent', reason: 'You signed your child up with a league or tournament.' };
   if (input.referee) return { tier: 'referee', reason: 'You referee league games.' };
   if (input.signupAnswer === 'organization') return { tier: 'organization', reason: 'You said you run an organization.' };
   if (input.signupAnswer === 'region') return { tier: 'region', reason: 'You said you run a region.' };
