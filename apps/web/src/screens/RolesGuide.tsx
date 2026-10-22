@@ -123,8 +123,8 @@ const PLANS: Array<[string, string, string]> = [
   ['Parent', '$4.99 / year', "For every parent, team parents included: your own child's stats and player card, designing their avatar, organization and region standings, photos, polls and message editing in team chat, and adding games and events to your calendar. Team parents also add flyers to the events they create and take practice attendance by hand."],
   ['Referee', '$4.99 / year', 'For referees: the running game clock on the referee match screen. Signing up for games and recording results is free.'],
   ['Region', '$199 / year', 'A region on its own, not part of an organization: every paid feature for its admins and directors, up to 20 teams with 20 games each.'],
-  ['Organization', '$299 / year', 'Up to 20 regions with 20 teams each (20 games per team). Every paid feature for organization and region admins and directors, with top-down visibility including team chats.'],
-  ['Organization Plus', '$499 / year', 'Everything in Organization, for up to 40 regions.'],
+  ['Organization', '$299 / year', 'Up to 20 regions and 200 teams, shared across the regions however you need (20 games per team). Every paid feature for organization and region admins and directors, with top-down visibility including team chats.'],
+  ['Organization Plus', '$499 / year', 'Everything in Organization, for up to 40 regions and unlimited teams.'],
 ];
 
 const FEATURES: Array<[string, string, string]> = [

@@ -135,9 +135,9 @@ export default function Analytics({
           <h2>Playing time fairness</h2>
           <p className="note">
             {fairness.spread === 0
-              ? 'Everyone has played the same number of minutes.'
-              : `${fairness.spread} minute spread between the most and least played.`}{' '}
-            Average {fairness.average} minutes.
+              ? 'Everyone gets the same minutes per game they come to.'
+              : `${fairness.spread} minute spread per game between the most and least played.`}{' '}
+            Average {fairness.average} minutes a game. Games a player missed (absent, sick, injured) don't count against it.
           </p>
           <div className="bars">
             {[...players]

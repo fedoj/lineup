@@ -252,6 +252,49 @@ async function practiceReminders(): Promise<number> {
 }
 
 /**
+ * Leagues (Shadi, 10/21): three quarters of the way through, the coaches and
+ * assistant coaches of every team in it are reminded to evaluate their
+ * players, once. Tournaments are too short for it.
+ */
+async function evaluationReminders(): Promise<number> {
+  const due = await query<{ id: string; name: string }>(
+    `SELECT c.id, c.name FROM competition c
+      WHERE c.kind = 'season' AND c.deleted_at IS NULL AND c.eval_reminded_at IS NULL
+        AND c.ends_on > c.starts_on
+        AND current_date >= c.starts_on + ((c.ends_on - c.starts_on) * 3 / 4)
+        AND current_date <= c.ends_on
+      ORDER BY c.ends_on
+      LIMIT ${BATCH}`,
+  );
+  let sent = 0;
+  for (const c of due) {
+    await transaction(async (tx) => {
+      const claim = await tx.query(
+        'UPDATE competition SET eval_reminded_at = now() WHERE id = $1 AND eval_reminded_at IS NULL RETURNING id',
+        [c.id],
+      );
+      if (!claim.rowCount) return;
+      await tx.query(
+        `INSERT INTO notification (user_id, kind, title, body, link)
+         SELECT DISTINCT ON (m.user_id) m.user_id, 'reminder', $2, $3, '/team?team=' || t.id
+           FROM competition_team ct
+           JOIN team t ON t.id = ct.team_id AND t.deleted_at IS NULL AND t.archived_at IS NULL
+           JOIN membership m ON m.team_id = t.id AND m.role IN ('coach', 'assistant')
+          WHERE ct.competition_id = $1
+          ORDER BY m.user_id, t.name`,
+        [
+          c.id,
+          'Time to evaluate your players',
+          `${c.name} is three quarters done. Rate each player on Team & roster while the season is fresh.`,
+        ],
+      );
+      sent++;
+    });
+  }
+  return sent;
+}
+
+/**
  * Send every reminder that is due: events, games and practices. Throttled;
  * pass force to run now. Returns how many reminders went out.
  */
@@ -270,6 +313,7 @@ export async function sendReminders(force = false): Promise<number> {
         eventReminders().catch(() => 0),
         gameReminders().catch(() => 0),
         practiceReminders().catch(() => 0),
+        evaluationReminders().catch(() => 0),
       ]);
       return counts.reduce((a, b) => a + b, 0);
     } finally {

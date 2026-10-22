@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError, type CoachSignups, type Family, type JoinRegionInfo, type MySignups, type ParentLabel, type RegionSignups, type Signup } from '../lib/api';
+import { divisionAge, placementCheck } from '@lineup/shared';
 import { PENDING_JOIN_KEY } from '../lib/pendingKeys';
 
 export const PARENT_LABELS: Array<[ParentLabel, string]> = [
@@ -30,6 +31,38 @@ interface ChildDraft {
 }
 
 const emptyChild = (): ChildDraft => ({ name: '', birthYear: '', birthMonth: '', gender: '', priorPlayerId: null });
+
+/**
+ * The teams a signed-up child can be placed on (Shadi, 10/21): their own age
+ * group first, then older ones they can play up in; teams that don't fit
+ * (wrong gender, a younger age group) show greyed out with why.
+ */
+function TeamOptions({
+  teams,
+  child,
+}: {
+  teams: Array<{ id: string; name: string; division: string | null; gender?: string | null }>;
+  child: { gender: 'boys' | 'girls'; division: string };
+}) {
+  const rank = (t: (typeof teams)[number]) => {
+    const fit = placementCheck(child, { gender: t.gender, division: t.division });
+    return { t, fit, order: !fit.ok ? 3 : fit.playsUp ? 1 + (divisionAge(t.division) ?? 0) / 100 : 0 };
+  };
+  return (
+    <>
+      {teams
+        .map(rank)
+        .sort((a, b) => a.order - b.order || a.t.name.localeCompare(b.t.name))
+        .map(({ t, fit }) => (
+          <option key={t.id} value={t.id} disabled={!fit.ok}>
+            {t.name}
+            {t.division ? ` (${t.division})` : ''}
+            {fit.ok ? (fit.playsUp ? ' · plays up' : '') : ` · ${fit.reason}`}
+          </option>
+        ))}
+    </>
+  );
+}
 
 /**
  * Account: join a region with its code and sign children up for the season.
@@ -554,15 +587,7 @@ export function RegionSignupsPanel({ regionId, onChanged }: { regionId: string; 
                         <option value="">
                           {teams.length ? 'Pick a team…' : comp ? 'Add teams to this league first' : 'Add a team to this region first'}
                         </option>
-                        {teams
-                          .slice()
-                          .sort((a, b) => Number(b.division === s.division) - Number(a.division === s.division))
-                          .map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}
-                              {t.division ? ` (${t.division})` : ''}
-                            </option>
-                          ))}
+                        <TeamOptions teams={teams} child={s} />
                       </select>
                       <button
                         type="button"
@@ -964,15 +989,7 @@ export function CoachSignupsPanel({ competitionId, onChanged }: { competitionId:
                   )}
                   <select aria-label={`Team for ${s.childName}`} value={teamFor[s.id] ?? ''} onChange={(e) => setTeamFor((t) => ({ ...t, [s.id]: e.target.value }))}>
                     <option value="">{data.teams.length ? 'Pick a team…' : 'No teams yet'}</option>
-                    {data.teams
-                      .slice()
-                      .sort((a, b) => Number(b.division === s.division) - Number(a.division === s.division))
-                      .map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                          {t.division ? ` (${t.division})` : ''}
-                        </option>
-                      ))}
+                    <TeamOptions teams={data.teams} child={s} />
                   </select>
                   <button
                     type="button"

@@ -6688,3 +6688,198 @@ section.card[data-fold] > .card-head > h2:focus-visible {
   margin-top: 0;
   font-style: italic;
 }
+
+/* ＋ New team at the plan's team limit: says why, and leads to the plans (Shadi, 10/20). */
+.drawer .item.new-team-full {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.drawer .item.new-team-full .sub {
+  font-size: 12px;
+  color: var(--ink-soft);
+  white-space: normal;
+  text-align: left;
+}
+
+/* @mentions in team chat (Shadi, 10/21). */
+.chat-body .mention {
+  color: var(--accent);
+  font-weight: 600;
+}
+.mention-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 6px;
+}
+.mention-pick button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.mention-pick button:hover,
+.mention-pick button:focus-visible {
+  border-color: var(--accent);
+}
+
+/* What to get notified about (Account). */
+.notify-prefs {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+.notify-pref {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.notify-pref > span {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+.notify-pref select {
+  max-width: 55%;
+}
+/* Shirt color chips in the avatar editor (Shadi, 10/21). */
+.chip .swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  vertical-align: -1px;
+}
+
+/* Announcements (Shadi, 10/21). */
+.announcement-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 6px 0;
+}
+.announcement.focus {
+  outline: 2px solid var(--accent);
+}
+
+/* Organization and region season stats. */
+.stat-boards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.stat-board ol {
+  margin: 6px 0 0;
+  padding-left: 22px;
+}
+.stat-board li {
+  padding: 3px 0;
+}
+.stat-board li > span:first-child {
+  display: inline-block;
+  max-width: 75%;
+}
+.stat-board .stat-value {
+  float: right;
+  font-weight: 600;
+}
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.stats-table th,
+.stats-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+.stats-table th:first-child,
+.stats-table td:first-child {
+  text-align: left;
+}
+/* Injured players list on organization and region stats. */
+.plain-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.plain-list li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.plain-list .stat-value {
+  float: right;
+}
+
+/* ====================== custom roles (Shadi, 10/21) ====================== */
+.custom-role {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.custom-role-head {
+  align-items: center;
+}
+.custom-role-head .group-title {
+  flex: 1 1 auto;
+  margin: 0;
+}
+.custom-role form.row input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/* ====================== group chats (Shadi, 10/21) ====================== */
+.group-chat-item .comp-main {
+  min-width: 0;
+}
+.group-chat-last {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-chat-unread {
+  display: inline-block;
+  min-width: 20px;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+  vertical-align: middle;
+}
+.group-chat-people {
+  margin-top: -4px;
+}
+
+/* ====================== family stats teaser (Shadi, 10/21) ====================== */
+.family-locks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.locked-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  user-select: none;
+}
+.family-unlocks {
+  margin: 10px 0;
+  padding-left: 20px;
+  color: var(--ink-soft);
+}

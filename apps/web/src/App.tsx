@@ -37,6 +37,7 @@ import { Logo } from './components/Logo';
 import { TrialEnded } from './components/Trial';
 import { PENDING_JOIN_KEY, PENDING_REF_KEY } from './lib/pendingKeys';
 import RefereeSettings from './components/RefereeSettings';
+import CustomRoles from './components/CustomRoles';
 import { startUsageTracking, trackPage } from './lib/usage';
 import { InstallBanner, NotifyAsk } from './components/InstallCard';
 import VerseOfTheDay from './components/VerseOfTheDay';
@@ -76,6 +77,10 @@ const PRELOAD = [Competitions, TeamCalendar, Calendar, TeamChat, MatchDay, Analy
 // download small. Each loads in the background while "Loading…" shows.
 const Admin = lazy(() => import('./screens/Admin'));
 const Support = lazy(() => import('./screens/Support'));
+const Announcements = lazy(() => import('./screens/Announcements'));
+const GroupChats = lazy(() => import('./screens/GroupChats'));
+const FamilyStats = lazy(() => import('./components/FamilyStats'));
+const ScopeStats = lazy(() => import('./screens/ScopeStats'));
 const Organization = lazy(() => import('./screens/Organization'));
 const Referee = lazy(() => import('./screens/Referee'));
 const RolesGuide = lazy(() => import('./screens/RolesGuide'));
@@ -104,6 +109,9 @@ type Screen =
   | 'account'
   | 'plans'
   | 'support'
+  | 'announcements'
+  | 'groups'
+  | 'leaders'
   | 'referee'
   | 'admin';
 
@@ -140,6 +148,9 @@ const PATHS: Partial<Record<Screen, string>> = {
   account: '/account',
   plans: '/plans',
   support: '/support',
+  announcements: '/announcements',
+  groups: '/groups',
+  leaders: '/leaders',
   org: '/org',
   settings: '/settings',
   signups: '/signups',
@@ -177,6 +188,9 @@ const PAGE_NAME: Record<Screen, string> = {
   account: 'Account',
   plans: 'Plans',
   support: 'Help & support',
+  announcements: 'Announcements',
+  groups: 'Group chats',
+  leaders: 'Stats',
   referee: 'Referee',
   admin: 'Admin console',
 };
@@ -390,9 +404,11 @@ export default function App() {
       try {
         const t = await teamsP;
         setTeams(t);
-        const atTeamLevel = !['/account', '/support', '/admin', '/org', '/competitions'].some((p) =>
+        const atTeamLevel = !['/account', '/support', '/admin', '/org', '/competitions', '/announcements', '/groups'].some((p) =>
           location.pathname.startsWith(p),
         );
+        // Opening the app with no page asked for lands on Announcements.
+        const atHome = (location.pathname === '/' || location.pathname === '') && !location.search;
         if (h && (h.orgs.length > 0 || (h.regions?.length ?? 0) > 0)) {
           // Hierarchy users start at the top of their organization (or their
           // standalone region) and pick a region or team from the menu before
@@ -400,7 +416,7 @@ export default function App() {
           setSelection(
             h.orgs.length > 0 ? { kind: 'org', id: h.orgs[0].id } : { kind: 'region', id: h.regions![0].id },
           );
-          if (atTeamLevel) {
+          if (atTeamLevel && !atHome) {
             setScreen('seasons');
             if (location.pathname === '/') history.replaceState(null, '', pathForScreen('seasons'));
           }
@@ -430,6 +446,11 @@ export default function App() {
         } else if (location.search) {
           // A link from a notification: the right team, screen and item.
           applyLink(location.pathname + location.search, t);
+        } else if (atHome) {
+          // Announcements are the home page (Shadi, 10/21): light to load, and
+          // what's new first.
+          setScreen('announcements');
+          history.replaceState(null, '', pathForScreen('announcements'));
         }
       } catch {
         /* signed out */
@@ -559,7 +580,12 @@ export default function App() {
       return false;
     }
   });
-  const familyOnly = !coachingOwn && teams.length > 0 && isFamilyOnly(teams.map((t) => t.myRole));
+  // Everyone who joined from a league's sign-up link is a parent (Shadi, 10/21),
+  // even before their child is placed on a team.
+  const signupParent = (me?.signupChildren ?? 0) > 0;
+  const familyOnly =
+    !coachingOwn &&
+    ((teams.length > 0 && isFamilyOnly(teams.map((t) => t.myRole))) || (teams.length === 0 && signupParent));
   const teamLimit = me?.limits?.teams ?? Number.MAX_SAFE_INTEGER;
   const canAddTeam = !familyOnly && teams.length < teamLimit;
   const teamLimitLabel =
@@ -685,6 +711,38 @@ export default function App() {
     } else {
       navigate('competitions');
     }
+  }
+
+  /**
+   * The ⚽ in the bar (Shadi, 10/20): the top of where you are. The selected
+   * item's organization, else its region, else the team's calendar; with
+   * nothing selected, your first organization, region or team.
+   */
+  function goHome() {
+    setAddingTeam(false);
+    const regionIds = new Set([...orgs.flatMap((o) => o.regions.map((r) => r.id)), ...standaloneRegions.map((r) => r.id)]);
+    let orgId: string | null = null;
+    let regionId: string | null = null;
+    let homeTeam: string | null = null;
+    if (selection?.kind === 'org') {
+      orgId = selection.id;
+    } else if (selection?.kind === 'region') {
+      orgId = orgs.find((o) => o.regions.some((r) => r.id === selection.id))?.id ?? null;
+      regionId = selection.id;
+    } else if (selection?.kind === 'team') {
+      const t = menuTeams.find((x) => x.id === selection.id);
+      orgId = t?.orgId && orgs.some((o) => o.id === t.orgId) ? t.orgId : null;
+      regionId = t?.regionId && regionIds.has(t.regionId) ? t.regionId : null;
+      homeTeam = selection.id;
+    } else {
+      orgId = orgs[0]?.id ?? null;
+      regionId = standaloneRegions[0]?.id ?? null;
+      homeTeam = teams[0]?.id ?? null;
+    }
+    if (orgId) select('org', orgId);
+    else if (regionId) select('region', regionId);
+    else if (homeTeam) select('team', homeTeam);
+    else navigate('standings');
   }
 
   function startAddingTeam() {
@@ -987,9 +1045,12 @@ export default function App() {
   // viewers follow the team (standings and calendar); coaches run it. The API
   // enforces all of this; the app just keeps unusable screens out of the way.
   const myRole = team?.myRole ?? null;
+  // A custom role (Shadi, 10/21) shows what its permissions allow, nothing more.
+  const customActions = myRole === 'custom' ? (team?.myActions ?? []) : null;
   const noMatchDay = myRole !== null && FAMILY_ROLES.includes(myRole as Role);
-  const canEditRoster = myRole === null || ['org_admin', 'director', 'region_admin', 'coach'].includes(myRole);
-  const canRunMatch = canEditRoster || myRole === 'assistant';
+  const canEditRoster =
+    myRole === null || ['org_admin', 'director', 'region_admin', 'coach'].includes(myRole) || Boolean(customActions?.includes('roster.edit'));
+  const canRunMatch = canEditRoster || myRole === 'assistant' || Boolean(customActions?.includes('lineup.edit'));
   const canInvite = team?.canInvite ?? canEditRoster;
   // Bringing players in from an older roster: whoever adds players here.
   const canImportRoster = Boolean(team && canEditRoster && team.canAddPlayers && !team.archivedAt);
@@ -1009,6 +1070,8 @@ export default function App() {
   )
     // Viewers follow the team but have no chat of their own.
     .filter(([id]) => !(id === 'chat' && myRole === 'viewer'))
+    // A custom role without match day does not get the Match day tab.
+    .filter(([id]) => !(id === 'matchday' && customActions && !customActions.includes('lineup.edit')))
     // A standalone team has its own Games tab: its coach's leagues,
     // tournaments and friendlies, never an organization's or region's
     // (Shadi, 10/20).
@@ -1029,8 +1092,23 @@ export default function App() {
   const canOpenSignups =
     selection?.kind === 'region' &&
     Boolean(selectedRegion && (selectedRegion.canManage || selectedRegion.canInvite || parentOfRegion?.canManage));
+  const canOpenStats =
+    selection?.kind === 'org'
+      ? Boolean(selectedOrg?.canManage)
+      : selection?.kind === 'region'
+        ? Boolean(selectedRegion?.canManage || parentOfRegion?.canManage)
+        : false;
+  // Group chats are for league staff, coaches, team parents and custom roles;
+  // parents, players and viewers are never in one (Shadi, 10/21).
+  const canOpenChats =
+    (selection?.kind === 'org' || selection?.kind === 'region') &&
+    (canOpenSettings || teams.some((t) => Boolean(t.myRole) && !['parent', 'player', 'viewer'].includes(t.myRole as string)));
   const scopeTabs: Array<[Screen, string]> = [
     ...SCOPE_TABS,
+    // Season leaders and team records for its staff (Shadi, 10/21).
+    // Group chats live on the organization's or region's page (Shadi, 10/21).
+    ...(canOpenChats ? ([['groups', 'Chat']] as Array<[Screen, string]>) : []),
+    ...(canOpenStats ? ([['leaders', '📊 Stats']] as Array<[Screen, string]>) : []),
     ...(canOpenSignups ? ([['signups', '📝 Sign-ups']] as Array<[Screen, string]>) : []),
     ...(canOpenSettings ? ([['settings', '⚙️ Settings']] as Array<[Screen, string]>) : []),
   ];
@@ -1234,10 +1312,7 @@ export default function App() {
           className="brand brand-home"
           title="Home"
           aria-label={`Lineup${contextLabel ? `, ${contextLabel}` : ''}: home`}
-          onClick={() => {
-            setAddingTeam(false);
-            navigate(selection?.kind === 'team' ? 'calendar' : selection ? 'seasons' : 'standings');
-          }}
+          onClick={goHome}
         >
           <span className="ball">⚽</span>
           <div>
@@ -1277,15 +1352,25 @@ export default function App() {
             ) : null
           }
           newTeam={
-            teams.length > 0 && canAddTeam && !addingTeam ? (
-              <button
-                type="button"
-                className="item small"
-                title={`${teams.length} of ${teamLimitLabel} teams used`}
-                onClick={startAddingTeam}
-              >
-                ＋ New team
-              </button>
+            teams.length > 0 && !familyOnly && !addingTeam ? (
+              canAddTeam ? (
+                <button
+                  type="button"
+                  className="item small"
+                  title={`${teams.length} of ${teamLimitLabel} teams used`}
+                  onClick={startAddingTeam}
+                >
+                  ＋ New team
+                </button>
+              ) : (
+                // At the plan's team limit the button stays, and says why (Shadi, 10/20).
+                <button type="button" className="item small new-team-full" onClick={() => navigate('plans')}>
+                  ＋ New team
+                  <span className="sub">
+                    {teams.length} of {teamLimitLabel} teams used on your plan. See plans ›
+                  </span>
+                </button>
+              )
             ) : null
           }
           // No separate Games item (Fady, 10/20): a coach's own teams add games from their
@@ -1300,6 +1385,13 @@ export default function App() {
               🟨 Referee
             </button>
           )}
+          <button
+            type="button"
+            className={`item ${screen === 'announcements' ? 'on' : ''}`}
+            onClick={() => navigate('announcements')}
+          >
+            📣 Announcements
+          </button>
           <button
             type="button"
             className={`item ${screen === 'account' ? 'on' : ''}`}
@@ -1457,7 +1549,12 @@ export default function App() {
       )}
 
       {screen === 'analytics' && selection?.kind === 'team' && team && (myRole === 'parent' || myRole === 'team_parent') && (
-        <MyPlayerRating teamId={team.id} />
+        <>
+          <MyPlayerRating teamId={team.id} />
+          <Lazy>
+            <FamilyStats teamId={team.id} />
+          </Lazy>
+        </>
       )}
 
       {screen === 'standings' && selection && selection.kind !== 'team' && (
@@ -1677,6 +1774,7 @@ export default function App() {
             managesOrg: orgs.some((o) => o.canManage),
             managesRegion: standaloneRegions.some((r) => r.canManage),
             referee: (me?.refereeOrgs ?? 0) > 0,
+            signupParent: !coachingOwn && (signupParent || onboard === 'parent'),
             signupAnswer: (() => {
               try {
                 return localStorage.getItem(PLAN_FOR_KEY);
@@ -1745,6 +1843,7 @@ export default function App() {
             <Organization focus={{ kind: selection.kind, id: selection.id }} onChanged={reloadAll} />
           </Lazy>
           <RefereeSettings scope={selection.kind === 'org' ? 'org' : 'region'} id={selection.id} />
+          <CustomRoles scope={selection.kind === 'org' ? 'org' : 'region'} id={selection.id} />
         </>
       )}
 
@@ -1754,6 +1853,22 @@ export default function App() {
             <Organization focus={{ kind: 'region', id: selection.id }} section="signups" onChanged={reloadAll} />
           </Lazy>
         </>
+      )}
+
+      {screen === 'announcements' && (
+        <Lazy>
+          <Announcements />
+        </Lazy>
+      )}
+      {screen === 'groups' && selection && selection.kind !== 'team' && (
+        <Lazy>
+          <GroupChats key={`chats-${selection.kind}-${selection.id}`} scope={selection.kind} scopeId={selection.id} focus={focus} />
+        </Lazy>
+      )}
+      {screen === 'leaders' && selection && selection.kind !== 'team' && (
+        <Lazy>
+          <ScopeStats key={`${selection.kind}-${selection.id}`} scope={selection.kind} id={selection.id} />
+        </Lazy>
       )}
 
       {screen === 'support' && (

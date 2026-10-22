@@ -13,6 +13,7 @@ import {
   refreshPushSubscription,
   reportPushSetup,
   shouldAskForNotifications,
+  startNativePush,
   turnOffNotifications,
   turnOnNotifications,
   type NotifyState,
@@ -246,7 +247,13 @@ export function NotifyAsk() {
   const [done, setDone] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isNativeApp()) return;
+    if (isNativeApp()) {
+      // The Android app: Firebase push, set up quietly on every start (Shadi, 10/22).
+      void startNativePush((token) => api.saveNativePush(token))
+        .then((r) => r !== 'unavailable' && reportPushSetup(api.reportPush, r === 'on' ? 'granted' : 'denied'))
+        .catch((e) => reportPushSetup(api.reportPush, e instanceof Error ? e : new Error(String(e))));
+      return;
+    }
     let alive = true;
     const t = window.setTimeout(() => {
       const state = notificationState();

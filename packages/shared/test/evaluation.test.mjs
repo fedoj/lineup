@@ -87,3 +87,21 @@ test("a family's view of their child's rating is on the family plans; rating is 
     assert.equal(hasFeature(tier, 'playerEvaluation'), true, tier);
   }
 });
+
+test('hairstyles by gender: boys get short cuts, girls longer styles, the first style is gone', async () => {
+  const { AVATAR_OPTIONS, BOY_HAIR, GIRL_HAIR, hairChoices, cleanAvatar } = await import('../dist/avatar.js');
+  assert.equal(AVATAR_OPTIONS.hair.includes('h01'), false);
+  assert.equal(cleanAvatar({ hair: 'h01' }).hair, 'h02');
+  assert.deepEqual(hairChoices('boy'), BOY_HAIR);
+  assert.deepEqual(hairChoices('girl'), GIRL_HAIR);
+  assert.equal(hairChoices(null).length, AVATAR_OPTIONS.hair.length);
+  for (const h of [...BOY_HAIR, ...GIRL_HAIR]) assert.ok(AVATAR_OPTIONS.hair.includes(h), h);
+  assert.equal(BOY_HAIR.filter((h) => GIRL_HAIR.includes(h)).length, 0);
+});
+
+test('shirt color: any of the list, white by default', async () => {
+  const { cleanAvatar } = await import('../dist/avatar.js');
+  assert.equal(cleanAvatar({}).shirt, 'white');
+  assert.equal(cleanAvatar({ shirt: 'navy' }).shirt, 'navy');
+  assert.equal(cleanAvatar({ shirt: 'plaid' }).shirt, 'white');
+});

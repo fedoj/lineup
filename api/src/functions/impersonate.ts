@@ -43,7 +43,7 @@ export async function impersonateHandler(
           available: allowed,
           ...state,
           // Players no longer get accounts, so there is nothing to test as one.
-          roles: allowed ? Object.keys(ROLE_RANK).filter((r) => r !== 'player') : [],
+          roles: allowed ? Object.keys(ROLE_RANK).filter((r) => r !== 'player' && r !== 'custom') : [],
           // Plans are tested as Free or Premium; Premium means the paid plan
           // the chosen role would buy (see premiumTierFor).
           tiers: allowed ? ['free', 'premium'] : [],

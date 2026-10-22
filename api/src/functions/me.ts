@@ -58,7 +58,7 @@ export async function meHandler(
       return { status: 401, jsonBody: { error: 'Not authenticated' } };
     }
 
-    const [entitlement, usage, impersonation, terms, trial, referee, billingRow, platformAdmin] = await Promise.all([
+    const [entitlement, usage, impersonation, terms, trial, referee, billingRow, platformAdmin, signups] = await Promise.all([
       getEntitlement(user.id),
       getAccountUsage(user.id),
       getImpersonation(user.id),
@@ -82,6 +82,11 @@ export async function meHandler(
         [user.id, LINEUP_PLAN.appId],
       ).catch(() => null),
       isPlatformAdmin(user.id),
+      // Signed a child up through a league or tournament link: a parent (Shadi, 10/21).
+      queryOne<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM region_signup WHERE parent_user_id = $1 AND status <> 'declined'`,
+        [user.id],
+      ).catch(() => null),
     ]);
 
     // An impersonated tier is enforced as if the paywall were on, so the
@@ -121,6 +126,8 @@ export async function meHandler(
         trial,
         plan: LINEUP_PLAN,
         refereeOrgs: referee?.n ?? 0,
+        // Children signed up through a league or tournament link: this person is a parent.
+        signupChildren: signups?.n ?? 0,
         // Platform admins get the admin console check; nobody else needs to ask.
         platformAdmin,
         billing: {

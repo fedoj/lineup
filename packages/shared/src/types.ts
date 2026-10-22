@@ -26,6 +26,11 @@ export interface Team {
   createdAt: string;
   /** The caller's strongest role on this team, when they hold one. */
   myRole?: string | null;
+  /** With a custom role (myRole 'custom'): exactly what it may do here, and its name. */
+  myActions?: string[];
+  myRoleName?: string | null;
+  /** Free text such as All Stars, MLS Next 2 or NCL (Shadi, 10/21). */
+  teamType?: string;
   /** The team plays in an organization or region (not a standalone team). */
   inLeague?: boolean;
   /** The caller may add or remove players (staff only on a league team). */

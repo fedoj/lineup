@@ -70,6 +70,77 @@ tournaments, sign-ups, invites and rosters. With no Settings tab, a scheduler
 finds the region's field maps on its Games tab. Staff roles hold both new
 actions too.
 
+Custom roles (Shadi, 10/21; migration 069 `custom_role`, `custom_role_member`,
+`invite.custom_role_id`; `/api/custom-roles`, `components/CustomRoles.tsx` in
+an organization's or region's Settings; shared `customRoles.ts`): the staff
+who can invite there (`member.invite` at that scope) make a role with a name,
+the teams it covers (age group codes such as BU10, which follow teams added
+later, and/or single teams) and permissions picked from `CUSTOM_PERMISSIONS`
+(seeing the teams is always on; schedule games, edit teams and rosters, invite
+people, run match day, team events and snacks, see player ratings, start group
+chats). Nobody can hand out a permission they do not hold there themselves.
+They give it by email: someone already on Lineup gets it at once (and a bell
+notification), anyone else gets an invite email whose accept adds them to the
+role. `readMemberships` expands each held role into team-level memberships
+(role `custom`, rank 44) carrying exactly its actions (`Membership.actions`,
+which `canOnTeam` uses instead of the role's grants; they also satisfy the
+league-staff check), and `REACHABLE_TEAM_IDS_SQL` includes those teams, so they
+appear in the menu under their organization. Being team-level, a custom role
+never reaches the organization or region itself. `/api/teams` returns
+`myActions` and `myRoleName` for it, and the app hides Match day without that
+permission. `custom` is never an invite role or an impersonation role, and is
+not counted toward the holder's team limit.
+
+Group chats (Shadi, 10/21; migration 070 `group_chat`, `group_chat_message`,
+`group_chat_read`; `/api/group-chats`, `screens/GroupChats.tsx`; shared
+`groupChat.ts`) live on an organization's or region's own 💬 Chats tab, where
+they were made (`?scope=&id=` filters the list and the start options), not in
+the menu. The tab shows for its staff and for anyone holding a team role other
+than parent, player or viewer. Organization and region staff (`member.invite`
+there) start a chat at that level, and so does anyone whose custom role made
+at that level has "Start group chats", for that role's teams only (written out
+as `team_ids`, so the chat never grows past them). Members are the team roles
+picked (coaches, assistant coaches, team parents; never parents) on the chat's
+teams (every team, age groups, or single teams), holders of picked custom
+roles, the staff if picked (an organization chat reaches the organization's
+and every region's staff, a region chat only that region's), and the person
+who started it. Membership is worked out on every read (`MEMBERS_SQL`,
+`IS_MEMBER`), so people who join later are in. Messages notify like team chat
+(`notification.group_key` `chat:g:<id>`, link `/groups?org=|region=<id>&focus=<chat>`,
+chat notification setting) and are kept 90 days. An optional end date (`ends_on`,
+Pacific) makes the chat read-only and moves it to Archived after that day; the
+starter and the scope's staff rename it, change the end date, archive or
+reopen it (reopening clears a passed end date) and delete it or any message.
+They are called "Chats" in the app (Shadi, 10/22). Every organization and
+region also has two default chats (migration 071 `group_chat.kind`), made the
+first time its Chats tab opens and pinned at the top: "Staff" (`kind` `staff`,
+roles `{staff}`: directors, admins and schedulers at that level) and "Admins &
+directors" (`kind` `admins`, roles `{admins}`: no schedulers). They cannot be
+renamed, ended, archived or deleted (`group_chat_default_uq` keeps one of each).
+The tab and headings say "Chat", with no emoji (Shadi, 10/22).
+
+Photos, polls and reactions in chats (Shadi, 10/22; migration 072
+`group_chat_message.image_mime/image_data`, kind `poll`, `group_chat_reaction`,
+`group_chat_poll`, `group_chat_poll_vote`; photos at `/api/group-chats/image`):
+the same as team chat (`CHAT_REACTIONS`, `parseChatImage`, `cleanChatPoll`,
+`cleanChatVote`; `components/ChatParts.tsx` holds the poll card, poll writer
+and photo preparation both chats use). Anyone in an open chat reacts and votes.
+Sending photos and creating polls (`chatPerks`) is free in the Staff and Admins &
+directors chats; elsewhere it needs the paid `chatAttachments` / `chatPolls`
+features, or a custom role in that organization with "Photos in chat"
+(`chatPhotos`) or "Polls in chat" (`chatPolls`) ticked. The poll's author, the
+chat's starter and its organization or region staff close polls.
+
+Family stats (Shadi, 10/21; `components/FamilyStats.tsx` under the parent's
+player card on a team's Stats tab, `/api/analytics?view=family`): parents and
+team parents see where the team stands in each league and tournament for free;
+the season record (friendlies included), results and their own child's goals,
+assists, minutes and attendance need the Parent plan's `ownPlayerStats`, and
+until then show greyed out with what they unlock. The family view is guarded by
+`game.view`, never returns other players, and returns only `locked` without the
+plan. A free parent's player card spells out its three locks: the card and
+rating, designing the avatar, and sharing the card.
+
 `team_parent` (team mom / manager) runs team events, the snack schedule and
 calendar sharing (`event.*`, `snack.*`, `calendar.share`). They see the whole
 roster's names but never lineups: `/api/games` hides assignments from them and
@@ -153,7 +224,14 @@ glitter in the hair (sparkles at points precomputed per hairstyle,
 `data/avatarGlitter.ts`) and rosy cheeks; `avatarForGender` drops them for
 anyone else, on save and on read. On the card the tee has a scooped collar,
 narrows under the arms and carries the region's logo on the chest (inlined into
-the shared picture),
+the shared picture). Since 10/21 (Shadi): only the art's own neck lines (the
+shorter inner pair is gone); girls are drawn slimmer (`SLIM`, body and arms
+scaled to 86% across); the tee color is the avatar's `shirt` part (13 colors,
+white by default; the small head-and-shoulders avatar keeps the jersey blue
+unless another color is picked); hairstyles are offered by gender (`BOY_HAIR`
+short cuts, `GIRL_HAIR` longer styles, ponytails and buns; `hairChoices`, all
+of them when no gender is on file), and the first Lorelei style (`h01`) was
+dropped (saved ones become `h02`),
 designed by any parent linked to the player (also a coach who is the child's
 parent), on any plan; never a photo. Evaluation lives on the roster (Fady,
 10/18): Team & roster shows each player's avatar (instead of the old boy or girl
@@ -195,6 +273,73 @@ coach who owns it sees "Sign-ups" on its page with the link, registration dates
 and "Players to place", approves or declines, and places each child on one of
 its teams (same placement as a region's: player added, parent linked with the
 parent role). The coach only adds numbers and positions.
+
+Which team a child can go on (Shadi, 10/21; `placementCheck` in
+`packages/shared/src/signup.ts`, enforced by `placeSignup`, 400 `WRONG_TEAM`):
+a boys' team takes boys and a girls' team girls (the team's `gender`, else its
+age group's B/G/C letter); a coed team, or one with no gender, takes both. A
+child's age group is the US Soccer birth-year rule (`suggestedDivision`); they
+may play in it or any older one ("play up": a U9 on a U9 or U10 team, since many
+leagues only have U8, U10, U12), never younger. A team with no age group takes
+any age. The team picker lists the child's own age group first, then older
+ones marked "plays up", and greys out the rest with why.
+
+Parents (Shadi, 10/21): everyone who signed a child up through a league or
+tournament link is a parent. `/api/me` returns `signupChildren`; before their
+child is placed they are treated as family (no team limits, trials or new team
+form) and Account suggests the Parent plan, not Coach.
+
+Age groups for teams (Shadi, 10/21; `TEAM_AGE_GROUPS` in `signup.ts`): the
+team set-up and "Set division" pickers offer AYSO's groups as leagues run them
+on MatchTrak: region play in two-year bands (U6, U8, U10, U12, U14, U16, U19)
+plus U9, U11 and U13 (Extra and Section play), for boys, girls and coed. The
+catalog keeps every U4-U19 group, so teams already on another keep it.
+
+Announcements (Shadi, 10/21; migration 067 `announcement`,
+`announcement_recipient`; `/api/announcements`, `screens/Announcements.tsx`,
+☰ › 📣 Announcements): organization and region staff (`member.invite` there)
+post a title and message (web links become clickable) to everyone, chosen
+roles (coaches, assistants, team parents, parents, region and organization
+staff) or, from an organization, referees only (`referee.org_id`); across the
+whole organization or region, chosen regions, or chosen teams. Recipients are
+fixed when it is posted and each gets a bell notification (pushed to phones)
+linking to `/announcements?id=`. Staff see who it went to and can delete it
+(which also removes the notifications); everyone else sees only what was sent
+to them, for 90 days.
+
+Organization and region stats (Shadi, 10/21; `/api/scope-stats`,
+`screens/ScopeStats.tsx`, the 📊 Stats tab for its admins and directors,
+`analytics.view`): this season's (August to July) leaders across its teams from
+match events (goals, assists on the goal or as an event, saves, shots) and the
+coaches' player ratings (top rated by overall; defenders by the defending score
+then near-goal clearances), plus each team's record (W-D-L, goals, clean
+sheets), narrowed to a region or a team.
+
+Since 10/21 (later, Shadi) the stats also show players injured in the last two
+months (game replies and attendance marked injured; an upcoming game marked
+injured reads "out for"), fair play by team (fairest and least even, by the gap
+in minutes per game between the most and least played, counting only games a
+player came to: `fairnessOf`, `MISSED_GAME_STATUSES`; teams with 2+ games with
+a lineup), and a Team type filter. The team Stats page's fairness uses the same
+per-game measure. Season-long stats are read from a stored copy
+(`lib/statsCache.ts`, migration 068 `stats_snapshot`): refreshed at night (1 to
+5 am Pacific) by whatever request comes in then, a few at a time, once more than
+20 hours old; during the day the stored copy is served, and only a missing copy
+or one over 2 days old is worked out on the spot. Copies unread for 2 weeks are
+dropped. The screen says when the numbers were worked out.
+
+Team type (Shadi, 10/21; migration 068 `team.team_type`): free text such as
+All Stars, MLS Next 2 or NCL, with suggestions (`TEAM_TYPE_SUGGESTIONS`), set on
+New team and on Team & roster; shown in the stats.
+
+Announcements are the home page (Shadi, 10/21): opening the app with no page
+asked for lands on 📣 Announcements. The author also gets their own
+announcement when they are in its audience, so it shows on their phone too.
+
+Evaluation reminder (Shadi, 10/21; `competition.eval_reminded_at`, migration
+067): three quarters of the way through a league (not tournaments), its teams'
+coaches and assistant coaches get "Time to evaluate your players", once, from
+`sendReminders`.
 
 The other parent (migration 056; `api/src/lib/coParent.ts`, `/api/family`,
 `FamilyCard`): the sign-up form has an optional "About you and the other
@@ -240,8 +385,8 @@ whole-team access.
 | Referee | 2 | 12 | 30 | – | Referees: the running game clock on the referee match screen (approved by Fady 10/15) | $4.99 |
 | Coach | 6 | 20 | 40 | – | Coaches and assistants: every paid team feature, including event flyers, plus everything in Parent (their own child's stats and player card) | $9.99 |
 | Region | 20 | 20 | 60 | 1 | A standalone region (no organization): its admins and directors | $199 |
-| Organization | 400 | 20 | 60 | 20 | Org and region admins and directors: everything, top down | $299 |
-| Organization Plus | 800 | 20 | 60 | 40 | Same as Organization, more regions | $499 |
+| Organization | 200 | 20 | 60 | 20 | Org and region admins and directors: everything, top down. Teams are shared across regions, no cap per region (Shadi, 10/22) | $299 |
+| Organization Plus | Unlimited | 20 | 60 | 40 | Same as Organization, more regions, unlimited teams (`UNLIMITED`) | $499 |
 
 The catalog lives in `packages/shared/src/entitlements.ts`. The October 2026
 change retired Club, League and Region: stored `club` rows map to `coach` and
@@ -943,16 +1088,22 @@ deletes only its upcoming practices.
   open it, and `revealInFold(el)` opens one before scrolling to it. What's
   opened stays open for the visit (sessionStorage).
 - **Verse of the day** (10/20, `components/VerseOfTheDay.tsx`,
-  `data/asvVerses.ts`): a Bible verse at the bottom of every page, from 340
-  verses on love, peace, forgiveness and the fruit of the Spirit, American
-  Standard Version (1901, public domain). Each page shows a different verse
+  `data/webVerses.ts`): a Bible verse at the bottom of every page, from 340
+  verses on love, peace, forgiveness and the fruit of the Spirit, World English
+  Bible (public domain, text as published by eBible.org without the psalm
+  titles; Shadi, 10/21, in place of the ASV). Each page shows a different verse
   and they all change each day (Pacific time); the list loads after the page
   and costs the server nothing.
 - **Words** (10/20): the leagues-and-tournaments page is "Games" (⚽), a
   coach's own teams are "My Own Teams", a player's code shows without "ID"
-  in front, and the calendar's button is "＋ Game". The menu's Games item (a
-  coach's own leagues and tournaments) is the first item under My Own Teams;
-  organizations and regions use their own Games tab.
+  in front, and the calendar's button is "＋ Game". The menu has no Games item
+  since 10/20 (standalone teams have a Games tab; organizations and regions
+  their own). **＋ New team** sits at the end of My Own Teams (Shadi, 10/20);
+  at the plan's team limit it stays, with "N of M teams used on your plan. See
+  plans ›" (to `/plans`), instead of disappearing.
+- **⚽ in the bar** (Shadi, 10/20, `goHome`): goes to the top of where you are:
+  the selected item's organization, else its region, else the team's
+  calendar; with nothing selected, your first organization, region or team.
 - **Help answers** (10/20, `components/HelpAnswers.tsx`): searchable questions
   and answers on Help & support, above "Ask us something".
 - **How players join** (10/20): on the Teams tab only (`JoinHelp`, with a
@@ -1009,6 +1160,43 @@ push service off, e.g. Brave or phones without Google Play services). Every
 attempt, and once a day where the device stands, is reported with
 `POST /api/push { report }` into `push_setup_log` (migration 063, kept 30 days:
 outcome, step, the browser's error, permission, installed, user agent).
+
+What gets pushed (Shadi, 10/21; migration 066 `notification_pref`,
+`packages/shared/src/notifyPrefs.ts`, `components/NotificationSettings.tsx` on
+Account): Games, Practices and Team events on or off, and Chat messages for
+every message, only @mentions, or off. No row means everything on.
+`GET /api/push` returns `prefs`; `POST /api/push { prefs }` saves them.
+`pushSend.ts` sorts each notification with `notifyCategory` (group `chat:`,
+`mention:`, `lineup:`, else the link's calendar `focus=game|practice|event`)
+and skips what `pushAllowed` says no to. The bell keeps everything, and
+sign-ups, placements and approvals always come through.
+
+@mentions in team chat (Shadi, 10/21; `chat_message.mentions` jsonb and
+`mention_all`, migration 066): typing @ in a chat suggests its people (GET
+returns `members` and `canMentionAll`); the server finds "@Name" for people in
+the chat (`findMentions`, longest names first) and "@everyone" from staff
+(coaches, assistants, team parents, organization and region staff dropped in).
+Mentioned people get "X mentioned you in Team" (group `mention:<team>:<chat>`,
+one unread per chat, cleared when the chat is read) instead of the usual new
+messages notification; @everyone tells the whole chat. Mentions are highlighted
+in the message.
+
+Android app push (Shadi, 10/22; `api/src/lib/fcm.ts`): the store app gets
+notifications through Firebase Cloud Messaging (project `lineup-mahoul`, free).
+On every start the app (`startNativePush` in `lib/install.ts`, called from
+`NotifyAsk`; `nativePush()` in `lib/native.ts` reaches
+`@capacitor/push-notifications` through the native shell, so the website never
+loads it) asks Android for permission once, makes the `lineup` notification
+channel, registers with Firebase and sends the token as
+`POST /api/push { fcmToken }`, saved as a `push_subscription` with endpoint
+`fcm:<token>` (keys `fcm`). Tapping a notification opens its link in the app.
+`pushSend.ts` sends to those devices with the FCM HTTP v1 API, signing in with
+the project's service account (`FCM_SERVICE_ACCOUNT_JSON` from the shared Key
+Vault secret `android-app-firebase-serviceaccount-privatekey-json`, via
+`infra/set-settings.cjs`); tokens Firebase reports unregistered are removed.
+`GET /api/push` reports `native` when Firebase is set up. The app build needs
+`apps/web/android/app/google-services.json` (git-ignored; write it from the
+shared secret `firebase-google-services-json` before building).
 
 ## Android app and ads
 

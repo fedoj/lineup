@@ -65,11 +65,20 @@ const OPTIONAL_FROM_VAULT = {
   'vapid-private-key': 'VAPID_PRIVATE_KEY',
 };
 
-/** Optional settings that are credentials and must never be printed. */
-const OPTIONAL_SECRETS = new Set(['ACS_CONNECTION_STRING', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'SUPPORT_INBOUND_SECRET', 'GRAPH_CLIENT_SECRET', 'VAPID_PRIVATE_KEY']);
+/**
+ * Shared by both environments, stored under their own names (not
+ * lineup-<env>-...): the Firebase project's service account, which sends
+ * push to the Android app (Shadi, 10/22; api/src/lib/fcm.ts).
+ */
+const SHARED_FROM_VAULT = {
+  'android-app-firebase-serviceaccount-privatekey-json': 'FCM_SERVICE_ACCOUNT_JSON',
+};
 
-function readSecret(suffix, optional = false) {
-  const name = `lineup-${env}-${suffix}`;
+/** Optional settings that are credentials and must never be printed. */
+const OPTIONAL_SECRETS = new Set(['ACS_CONNECTION_STRING', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'SUPPORT_INBOUND_SECRET', 'GRAPH_CLIENT_SECRET', 'VAPID_PRIVATE_KEY', 'FCM_SERVICE_ACCOUNT_JSON']);
+
+function readSecret(suffix, optional = false, exactName = false) {
+  const name = exactName ? suffix : `lineup-${env}-${suffix}`;
   try {
     return sh([
       'keyvault', 'secret', 'show',
@@ -107,6 +116,10 @@ for (const [suffix, settingName] of Object.entries(FROM_VAULT)) {
 // impersonation feature as unavailable and refuses every attempt.
 for (const [suffix, settingName] of Object.entries(OPTIONAL_FROM_VAULT)) {
   const value = readSecret(suffix, true);
+  if (value) settings[settingName] = value;
+}
+for (const [name, settingName] of Object.entries(SHARED_FROM_VAULT)) {
+  const value = readSecret(name, true, true);
   if (value) settings[settingName] = value;
 }
 

@@ -3,6 +3,7 @@ import {
   canOnScope,
   canOnTeam,
   canRestoreTeam,
+  cleanTeamType,
   FORMATS,
   isFamilyOnly,
   isValidFormation,
@@ -41,6 +42,7 @@ interface TeamRow {
   periods: string | null;
   period_length_sec: number | null;
   default_formation: string | null;
+  team_type?: string | null;
   created_at: Date;
   archived_at?: Date | null;
 }
@@ -63,6 +65,7 @@ function toTeam(row: TeamRow): Team {
     periods: (row.periods as Team['periods']) ?? undefined,
     periodLengthSec: row.period_length_sec ?? undefined,
     defaultFormation: row.default_formation ?? undefined,
+    teamType: row.team_type ?? undefined,
     createdAt: row.created_at.toISOString(),
     archivedAt: row.archived_at ? row.archived_at.toISOString() : undefined,
     restoreUntil: row.archived_at ? teamRestoreUntil(row.archived_at) : undefined,
@@ -115,9 +118,12 @@ export async function teamsHandler(
             inLeague: !r.org_personal || Boolean(r.region_id && r.region_personal === false),
             archived: Boolean(r.archived_at),
           };
+          const mine = membershipsForTeam(access.memberships, scope)[0];
           return {
             ...toTeam(r),
-            myRole: membershipsForTeam(access.memberships, scope)[0]?.role ?? null,
+            myRole: mine?.role ?? null,
+            // A custom role's exact permissions, so the app shows only what it can use.
+            ...(mine?.actions ? { myActions: [...mine.actions], myRoleName: mine.customRoleName ?? null } : {}),
             inLeague: scope.inLeague,
             canAddPlayers: canOnTeam(access, scope, 'roster.add').allowed,
             canInvite: canOnTeam(access, scope, 'member.invite').allowed,
@@ -140,6 +146,8 @@ export async function teamsHandler(
         format?: Format;
         periods?: 'quarters' | 'halves';
         defaultFormation?: string;
+        /** All Stars, MLS Next 2, NCL…; an empty string clears it (Shadi, 10/21). */
+        teamType?: string | null;
       };
       if (!patch.id) return { status: 400, jsonBody: { error: 'id is required' } };
 
@@ -218,7 +226,8 @@ export async function teamsHandler(
            format = COALESCE($8, format),
            periods = COALESCE($9, periods),
            period_length_sec = COALESCE($10, period_length_sec),
-           default_formation = COALESCE($11, default_formation)
+           default_formation = COALESCE($11, default_formation),
+           team_type = CASE WHEN $12::boolean THEN $13 ELSE team_type END
          WHERE id = $1 AND deleted_at IS NULL
          RETURNING *`,
         [
@@ -234,6 +243,8 @@ export async function teamsHandler(
           patch.periods ?? cat?.periods ?? null,
           cat?.period_length_sec ?? null,
           patch.defaultFormation ?? null,
+          patch.teamType !== undefined,
+          cleanTeamType(patch.teamType),
         ],
       );
       return { status: 200, jsonBody: row ? toTeam(row) : null };
@@ -360,8 +371,8 @@ export async function teamsHandler(
                            assistant_coach, region, division,
                            org_id, region_id, division_id, catalog_division_id,
                            gender, age_u, format, periods, period_length_sec,
-                           default_formation)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+                           default_formation, team_type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
          RETURNING *`,
         [
           user.id,
@@ -382,6 +393,7 @@ export async function teamsHandler(
           periods,
           periodLengthSec,
           defaultFormation,
+          cleanTeamType(body.teamType),
         ],
       );
 

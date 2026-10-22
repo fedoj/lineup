@@ -19,6 +19,7 @@ import {
   normalizeTier,
   premiumTierFor,
   tierForFeature,
+  UNLIMITED,
 } from '../dist/index.js';
 
 const ent = (over = {}) => ({
@@ -50,11 +51,11 @@ test('coach plan is 6 teams and 20 games per team, prices match the catalog', ()
   assert.equal(LINEUP_PLAN.tiers.organizationPlus.priceCents, 49900);
 });
 
-test('region and organization plans scale by region, 20 teams and 20 games each', () => {
+test('region plan is 20 teams; organizations share teams across regions (Shadi, 10/22)', () => {
   const { region, organization, organizationPlus } = LINEUP_PLAN.tiers;
   assert.deepEqual([region.limits.regions, region.limits.teams, region.limits.gamesPerTeam], [1, 20, 20]);
-  assert.deepEqual([organization.limits.regions, organization.limits.teams], [20, 400]);
-  assert.deepEqual([organizationPlus.limits.regions, organizationPlus.limits.teams], [40, 800]);
+  assert.deepEqual([organization.limits.regions, organization.limits.teams], [20, 200]);
+  assert.deepEqual([organizationPlus.limits.regions, organizationPlus.limits.teams], [40, UNLIMITED]);
   // A region plan runs its own region, but cannot found an organization.
   assert.equal(hasFeature('region', 'regions'), true);
   assert.equal(hasFeature('region', 'orgs'), false);
@@ -217,7 +218,8 @@ test('nextTierFor finds the smallest sufficient tier', () => {
   assert.equal(nextTierFor(LINEUP_PLAN, 'teams', 20), 'region');
   assert.equal(nextTierFor(LINEUP_PLAN, 'teams', 100), 'organization');
   assert.equal(nextTierFor(LINEUP_PLAN, 'teams', 600), 'organizationPlus');
-  assert.equal(nextTierFor(LINEUP_PLAN, 'teams', 10_000), undefined);
+  // Organization Plus has no team limit (Shadi, 10/22).
+  assert.equal(nextTierFor(LINEUP_PLAN, 'teams', 10_000), 'organizationPlus');
 });
 
 test('prices format for display', () => {

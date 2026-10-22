@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { app, type HttpRequest, type HttpResponseInit } from '@azure/functions';
 import { getPool } from './db.js';
 import { sendPendingPushes } from './pushSend.js';
+import { refreshStatsAtNight } from './statsCache.js';
 import { withRequestScope } from './requestScope.js';
 
 /**
@@ -45,6 +46,9 @@ app.hook.preInvocation((context) => {
       // Notifications this request created go out to phones before it ends:
       // Static Web Apps functions only run while answering a request.
       if (isHttpRequest(triggerInput)) await sendPendingPushes().catch(() => undefined);
+      // At night only (1 to 5 am Pacific), season-long stats are refreshed a few
+      // at a time, so they are ready and nobody waits on them during the day.
+      if (isHttpRequest(triggerInput)) await refreshStatsAtNight().catch(() => undefined);
       return isHttpRequest(triggerInput) && res && typeof res === 'object' ? withEtag(triggerInput, res as HttpResponseInit) : res;
     });
 });

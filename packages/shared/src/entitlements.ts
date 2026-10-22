@@ -227,17 +227,20 @@ export const LINEUP_PLAN: AppPlan<LineupResource> = {
       id: 'organization',
       name: 'Organization',
       priceCents: 29900,
-      limits: { teams: 20 * TEAMS_PER_REGION, gamesPerTeam: GAMES_PER_TEAM_PAID, playersPerTeam: 60, regions: 20 },
+      // Teams are shared across the organization's regions, with no cap per region
+      // (Shadi, 10/22): half the old 20 x 20, used wherever it is needed.
+      limits: { teams: 10 * TEAMS_PER_REGION, gamesPerTeam: GAMES_PER_TEAM_PAID, playersPerTeam: 60, regions: 20 },
       features: ['orgs', ...STAFF_FEATURES],
-      blurb: 'Up to 20 regions with 20 teams each. Every paid feature for organization and region admins and directors, top down.',
+      blurb: 'Up to 20 regions and 200 teams, shared across your regions however you need. Every paid feature for organization and region admins and directors, top down.',
     },
     organizationPlus: {
       id: 'organizationPlus',
       name: 'Organization Plus',
       priceCents: 49900,
-      limits: { teams: 40 * TEAMS_PER_REGION, gamesPerTeam: GAMES_PER_TEAM_PAID, playersPerTeam: 60, regions: 40 },
+      // Unlimited teams (Shadi, 10/22).
+      limits: { teams: UNLIMITED, gamesPerTeam: GAMES_PER_TEAM_PAID, playersPerTeam: 60, regions: 40 },
       features: ['orgs', ...STAFF_FEATURES],
-      blurb: 'Up to 40 regions with 20 teams each. Everything in Organization.',
+      blurb: 'Up to 40 regions and unlimited teams. Everything in Organization.',
     },
   },
 };

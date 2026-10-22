@@ -1,25 +1,35 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  applyPollVote,
-  CHAT_IMAGE_MAX_BYTES,
-  CHAT_IMAGE_MAX_SIDE,
-  CHAT_PHOTOS_PER_SEND,
-  chatRefreshDelay,
-} from '@lineup/shared';
+import { applyPollVote, CHAT_PHOTOS_PER_SEND, chatRefreshDelay } from '@lineup/shared';
 import { api, apiPath, peek, type ChatMessage, type TeamChat as Chat } from '../lib/api';
-import { readAsDataUrl, shrinkPhoto } from '../lib/image';
+import { PollCard, PollComposer, preparePhoto } from '../components/ChatParts';
 import { PaidLock } from '../lib/features';
 import { CameraIcon, ImageIcon, prefersCamera, useFileDrop } from '../components/FilePick';
 
-/**
- * A photo ready to send: a JPEG at most CHAT_IMAGE_MAX_SIDE on its longest
- * side and under CHAT_IMAGE_MAX_BYTES, so a phone camera's 5 MB picture goes
- * as about 100-250 KB. A small GIF goes as it is, so it keeps moving.
- */
-async function preparePhoto(file: File): Promise<string> {
-  if (!file.type.startsWith('image/')) throw new Error('Pick a photo.');
-  if (file.type === 'image/gif' && file.size <= CHAT_IMAGE_MAX_BYTES) return readAsDataUrl(file);
-  return shrinkPhoto(file, { maxSide: CHAT_IMAGE_MAX_SIDE, maxBytes: CHAT_IMAGE_MAX_BYTES });
+/** The @mention being typed just before the caret, if any: its text and where it starts. */
+function mentionAt(text: string, caret: number): { query: string; start: number } | null {
+  const m = /(^|\s)@([^\s@]{0,30})$/.exec(text.slice(0, caret));
+  return m ? { query: m[2], start: caret - m[2].length - 1 } : null;
+}
+
+/** A message with its @mentions highlighted (Shadi, 10/21). */
+function MessageText({ body, names, all }: { body: string; names: string[]; all: boolean }) {
+  const tokens = [...names.map((n) => `@${n}`), ...(all ? ['@everyone'] : [])];
+  if (!tokens.length) return <>{body}</>;
+  const esc = tokens.sort((a, b) => b.length - a.length).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const parts = body.split(new RegExp(`(${esc.join('|')})`, 'gi'));
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <span key={i} className="mention">
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
 }
 
 function when(iso: string): string {
@@ -43,6 +53,9 @@ export default function TeamChat({ teamId, initialChannel }: { teamId: string; i
   const [chat, setChat] = useState<Chat | null>(() => peek<Chat>(apiPath.chat(teamId, initialChannel)) ?? null);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState('');
+  // The @mention being typed: what follows the @ and where it starts.
+  const [mention, setMention] = useState<{ query: string; start: number } | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editing, setEditing] = useState<ChatMessage | null>(null);
   const [picker, setPicker] = useState<string | null>(null);
@@ -200,6 +213,31 @@ export default function TeamChat({ teamId, initialChannel }: { teamId: string; i
 
   const ch = chat.channel;
 
+  // @mention suggestions: people in this chat, and @everyone for staff.
+  const mentionChoices = (() => {
+    if (!mention || editing) return [];
+    const q = mention.query.toLowerCase();
+    const people = (chat.members ?? []).filter((p) =>
+      p.name
+        .toLowerCase()
+        .split(/\s+/)
+        .some((w) => w.startsWith(q)),
+    );
+    const everyone = chat.canMentionAll && 'everyone'.startsWith(q) ? [{ id: 'everyone', name: 'everyone' }] : [];
+    return [...everyone, ...people].slice(0, 6);
+  })();
+  function pickMention(name: string) {
+    if (!mention) return;
+    const caret = mention.start + 1 + mention.query.length;
+    setText(`${text.slice(0, mention.start)}@${name} ${text.slice(caret)}`);
+    setMention(null);
+    const pos = mention.start + name.length + 2;
+    window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(pos, pos);
+    }, 0);
+  }
+
   async function submit() {
     const body = text.trim();
     const sending = editing ? [] : photos;
@@ -349,7 +387,13 @@ export default function TeamChat({ teamId, initialChannel }: { teamId: string; i
                     </div>
                   )}
                   {m.kind === 'poll' && m.poll ? (
-                    <PollCard m={m} busy={busy} act={act} onVote={(choices) => void vote(m.id, choices)} />
+                    <PollCard
+                      question={m.body}
+                      poll={m.poll}
+                      busy={busy}
+                      onVote={(choices) => void vote(m.id, choices)}
+                      onClose={() => void act(() => api.chatAction({ action: 'closePoll', messageId: m.id }))}
+                    />
                   ) : (
                     <>
                       {m.image && (
@@ -357,7 +401,11 @@ export default function TeamChat({ teamId, initialChannel }: { teamId: string; i
                           <img className="chat-photo" src={m.image.url} alt={`Photo from ${m.author}`} loading="lazy" />
                         </a>
                       )}
-                      {m.body && <div className="chat-body">{m.body}</div>}
+                      {m.body && (
+                        <div className="chat-body">
+                          <MessageText body={m.body} names={m.mentions ?? []} all={Boolean(m.mentionAll)} />
+                        </div>
+                      )}
                     </>
                   )}
                   <div className="chat-actions">
@@ -508,16 +556,45 @@ export default function TeamChat({ teamId, initialChannel }: { teamId: string; i
               )}
               {preparing && <p className="note">Preparing photos…</p>}
               <div className="chat-compose">
+                {mentionChoices.length > 0 && (
+                  <div className="mention-pick" role="listbox" aria-label="Mention someone">
+                    {mentionChoices.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        role="option"
+                        aria-selected={false}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => pickMention(p.name)}
+                      >
+                        @{p.name}
+                        {p.id === 'everyone' && <span className="sub"> tells everyone in this chat</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <textarea
+                  ref={inputRef}
                   value={text}
                   maxLength={chat.maxLength}
                   rows={2}
                   placeholder={photos.length && !editing ? 'Add a caption (optional)' : 'Write a message'}
                   onChange={(e) => {
                     setText(e.target.value);
+                    setMention(mentionAt(e.target.value, e.target.selectionStart ?? e.target.value.length));
                     lastActivity.current = Date.now();
                   }}
+                  onBlur={() => window.setTimeout(() => setMention(null), 150)}
                   onKeyDown={(e) => {
+                    if (e.key === 'Escape' && mention) {
+                      setMention(null);
+                      return;
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey && mentionChoices.length > 0) {
+                      e.preventDefault();
+                      pickMention(mentionChoices[0].name);
+                      return;
+                    }
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       void submit();
@@ -606,165 +683,5 @@ export default function TeamChat({ teamId, initialChannel }: { teamId: string; i
         </>
       )}
     </section>
-  );
-}
-
-/** A poll in the chat: tap an answer to vote; tap it again to take it back. */
-function PollCard({
-  m,
-  busy,
-  act,
-  onVote,
-}: {
-  m: ChatMessage;
-  busy: boolean;
-  act: (fn: () => Promise<unknown>) => Promise<void>;
-  onVote: (choices: number[]) => void;
-}) {
-  const [showVoters, setShowVoters] = useState(false);
-  const poll = m.poll!;
-  const most = Math.max(1, ...poll.options.map((o) => o.votes));
-  const mineNow = poll.options.map((o, i) => (o.mine ? i : -1)).filter((i) => i >= 0);
-
-  function vote(i: number) {
-    const choices = poll.multi
-      ? mineNow.includes(i)
-        ? mineNow.filter((x) => x !== i)
-        : [...mineNow, i].sort((a, b) => a - b)
-      : mineNow.includes(i)
-        ? []
-        : [i];
-    onVote(choices);
-  }
-
-  return (
-    <div className="chat-poll">
-      <div className="chat-poll-q">
-        <span aria-hidden="true">📊</span> {m.body}
-      </div>
-      <div className="sub">
-        {poll.closed ? 'Poll closed' : poll.multi ? 'Pick one or more' : 'Pick one'} · {poll.voters}{' '}
-        {poll.voters === 1 ? 'person' : 'people'} voted
-      </div>
-      <ul className="chat-poll-options">
-        {poll.options.map((o, i) => (
-          <li key={i}>
-            <button
-              type="button"
-              className={`chat-poll-option${o.mine ? ' mine' : ''}`}
-              disabled={poll.closed}
-              aria-pressed={o.mine}
-              onClick={() => vote(i)}
-            >
-              <span className="chat-poll-bar" style={{ width: `${Math.round((o.votes / most) * 100)}%` }} />
-              <span className="chat-poll-text">
-                {o.mine ? '✅ ' : ''}
-                {o.text}
-              </span>
-              <span className="chat-poll-count">{o.votes}</span>
-            </button>
-            {showVoters && o.voters.length > 0 && <div className="sub chat-poll-voters">{o.voters.join(', ')}</div>}
-          </li>
-        ))}
-      </ul>
-      <div className="chat-actions">
-        {poll.voters > 0 && (
-          <button type="button" className="linkish" onClick={() => setShowVoters((v) => !v)}>
-            {showVoters ? 'Hide who voted' : 'Who voted'}
-          </button>
-        )}
-        {poll.canClose && (
-          <button
-            type="button"
-            className="linkish"
-            disabled={busy}
-            onClick={() => {
-              if (window.confirm('Close this poll? Nobody will be able to vote after that.')) {
-                void act(() => api.chatAction({ action: 'closePoll', messageId: m.id }));
-              }
-            }}
-          >
-            Close poll
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Write a poll: a question, 2 to 6 answers, and one or several picks. */
-function PollComposer({
-  max,
-  busy,
-  onCreate,
-  onCancel,
-}: {
-  max: number;
-  busy: boolean;
-  onCreate: (p: { question: string; options: string[]; multi: boolean }) => Promise<void>;
-  onCancel: () => void;
-}) {
-  const [question, setQuestion] = useState('');
-  const [options, setOptions] = useState(['', '']);
-  const [multi, setMulti] = useState(false);
-  const filled = options.map((o) => o.trim()).filter(Boolean);
-  const ready = question.trim() && filled.length >= 2;
-
-  return (
-    <div className="chat-poll-form">
-      <label>
-        Question
-        <input
-          value={question}
-          maxLength={200}
-          placeholder="e.g. Who can drive to Saturday's game?"
-          onChange={(e) => setQuestion(e.target.value)}
-        />
-      </label>
-      {options.map((o, i) => (
-        <div className="row" key={i}>
-          <input
-            style={{ flex: '1 1 200px' }}
-            value={o}
-            maxLength={80}
-            placeholder={`Answer ${i + 1}`}
-            aria-label={`Answer ${i + 1}`}
-            onChange={(e) => setOptions((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))}
-          />
-          {options.length > 2 && (
-            <button
-              type="button"
-              className="chip-x"
-              title="Remove this answer"
-              onClick={() => setOptions((prev) => prev.filter((_, j) => j !== i))}
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      ))}
-      {options.length < max && (
-        <button type="button" className="linkish" onClick={() => setOptions((prev) => [...prev, ''])}>
-          + Add an answer
-        </button>
-      )}
-      <label className="check">
-        <input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} /> People can pick more
-        than one answer
-      </label>
-      <div className="row">
-        <button
-          type="button"
-          className="btn"
-          disabled={busy || !ready}
-          onClick={() => void onCreate({ question: question.trim(), options: filled, multi })}
-        >
-          Post poll
-        </button>
-        <button type="button" className="btn ghost" onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </div>
   );
 }

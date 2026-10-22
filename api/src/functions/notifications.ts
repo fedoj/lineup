@@ -144,7 +144,7 @@ export async function adminNotifyHandler(
       ]);
       return {
         status: 200,
-        jsonBody: { history, scopes: { orgs, regions, teams }, roles: Object.keys(ROLE_RANK).filter((r) => r !== 'player'), tiers: TIER_ORDER },
+        jsonBody: { history, scopes: { orgs, regions, teams }, roles: Object.keys(ROLE_RANK).filter((r) => r !== 'player' && r !== 'custom'), tiers: TIER_ORDER },
       };
     }
 
